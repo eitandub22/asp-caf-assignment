@@ -5,7 +5,7 @@
 #include <vector>
 #include <cstring>
 #include <stdexcept>
-#include <unordered_map>
+#include <map>
 
 #include "caf.h"
 #include "object_io.h"
@@ -96,10 +96,11 @@ Tree load_tree(const std::string &root_dir, const std::string &tree_hash) {
     int fd = open_content_for_reading(root_dir.c_str(), tree_hash.c_str());
 
     uint32_t num_records;
-    if (read(fd, &num_records, sizeof(num_records)) != sizeof(num_records))
+    if (read(fd, &num_records, sizeof(num_records)) != sizeof(num_records)) {
         throw std::runtime_error("Failed to read the number of records");
+    }
 
-    std::unordered_map<std::string, TreeRecord> records;
+    std::map<std::string, TreeRecord> records;
     for (uint32_t i = 0; i < num_records; ++i) {
         TreeRecord record = load_tree_record(fd);
         records.emplace(record.name, record);
