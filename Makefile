@@ -26,7 +26,7 @@ run: build-container
 	else \
 		echo "✨ Creating and running new container..."; \
 		docker run --detach -it --name $(CONTAINER_NAME) \
-			-v $(WORKSPACE_DIR):/workspace $(IMAGE_NAME); \
+			-v "$(WORKSPACE_DIR):/workspace" $(IMAGE_NAME); \
 	fi
 
 attach: run
@@ -57,7 +57,7 @@ disable-coverage:
 
 deploy-libcaf:
 	@echo "📦 Deploying libcaf library..."
-	cd libcaf && CMAKE_ARGS="-DENABLE_COVERAGE=$(ENABLE_COVERAGE)" pip install --no-build-isolation -v -e . \
+	cd libcaf && pip install --no-build-isolation -v -e . --config-settings=cmake.define.ENABLE_COVERAGE=$(ENABLE_COVERAGE) \
 	&& cd .. && pybind11-stubgen _libcaf -o libcaf
 
 deploy-caf:
@@ -69,7 +69,7 @@ deploy: deploy-libcaf deploy-caf
 
 # === Testing ===
 
-test:
+test: deploy
 	@echo "🧪 Running tests..."
 ifeq ($(ENABLE_COVERAGE), 1)
 		@echo "📊 Generating coverage report..."
