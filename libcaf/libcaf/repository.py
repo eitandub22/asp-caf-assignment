@@ -14,6 +14,7 @@ from .constants import (DEFAULT_BRANCH, DEFAULT_REPO_DIR, HASH_CHARSET, HASH_LEN
                         OBJECTS_SUBDIR, REFS_DIR, TAGS_DIR)
 from .plumbing import hash_object, load_commit, load_tree, save_commit, save_file_content, save_tree
 from .ref import HashRef, Ref, RefError, SymRef, read_ref, write_ref
+from .tag import TagNotInTagsDirError, Tag, write_tag
 
 
 class RepositoryError(Exception):
@@ -562,6 +563,14 @@ class Repository:
         return self.repo_path() / HEAD_FILE
     
     @requires_repo
+    def tags(self) -> list[str]:
+        """Get a list of all tags in the repository.
+
+        :return: A list of tag names.
+        :raises RepositoryNotFoundError: If the repository does not exist."""
+        return [x.name for x in self.tags_dir().iterdir() if x.is_file()]
+    
+    @requires_repo
     def delete_tag(self, tag_name: str) -> None:
         """Delete a tag from the repository.
 
@@ -574,8 +583,7 @@ class Repository:
         tag_path = self.tags_dir() / tag_name
 
         if not tag_path.exists():
-            msg = f'Tag "{tag_name}" does not exist.'
-            raise RepositoryError(msg)
+            raise TagNotInTagsDirError(tag_name)
 
         tag_path.unlink()
 
@@ -606,23 +614,15 @@ class Repository:
         :raises RepositoryError: If the tag already exists.
         :raises RepositoryNotFoundError: If the repository does not exist."""
         if not tag_name:
-            msg = 'Branch name is required'
+            msg = 'Tag name is required'
             raise ValueError(msg)
-        if self.tag_exists(tag_name):
-            msg = f'Tag "{tag_name}" already exists'
-            raise RepositoryError(msg)
                 
         if not commit_hash or len(commit_hash) != HASH_LENGTH or not all(c in HASH_CHARSET for c in commit_hash):
             msg = f'Invalid commit hash: {commit_hash}'
             raise ValueError(msg)
+        
         if not self.object_exists(commit_hash):
             msg = f'Commit with hash "{commit_hash}" does not exist'
-            raise RepositoryError(msg)
-        
-
-        commit_path = self.objects_dir() / commit_hash[:2] / commit_hash
-        if commit_path.stat().st_size == 0:
-            msg = f'Commit with hash "{commit_hash}" is empty or invalid'
             raise RepositoryError(msg)
         
         try:
@@ -632,9 +632,9 @@ class Repository:
                 raise RepositoryError(msg)
         except Exception as e:
             raise RepositoryError(e) from e
-
-        write_ref((self.tags_dir() / tag_name), HashRef(commit_hash))
-
+        
+        tag_path = self.tags_dir() / tag_name
+        write_tag(tag_path, Tag(commit_hash))
 
     @requires_repo
     def object_exists(self, object_hash: str) -> bool:

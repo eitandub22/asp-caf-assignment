@@ -10,7 +10,7 @@ from libcaf.plumbing import hash_file as plumbing_hash_file
 from libcaf.ref import SymRef
 from libcaf.repository import (AddedDiff, Diff, ModifiedDiff, MovedToDiff, RemovedDiff, Repository, RepositoryError,
                                RepositoryNotFoundError)
-
+from libcaf.tag import TagNotInTagsDirError, TagAlreadyExistsError
 
 def _print_error(message: str) -> None:
     print(f'❌ Error: {message}', file=sys.stderr)
@@ -289,7 +289,7 @@ def tags(**kwargs) -> int:
         _print_success('Tags:')
 
         for tag in tags:
-            print(tag)
+            print(f'{"":4}{tag}')
     except RepositoryNotFoundError:
         _print_error(f'No repository found at {repo.repo_path()}')
         return -1
@@ -310,10 +310,13 @@ def delete_tag(**kwargs) -> int:
     except RepositoryNotFoundError:
         _print_error(f'No repository found at {repo.repo_path()}')
         return -1
-    except RepositoryError as e:
-        _print_error(f'Repository error: {e}')
+    except TagNotInTagsDirError as e:
+        _print_error(f'Tag error: {e}')
         return -1
-    
+    except ValueError as e:
+        _print_error(f'Value error: {e}')
+        return -1
+
 def create_tag(**kwargs) -> int:
     repo = _repo_from_cli_kwargs(kwargs)
     tag_name = kwargs.get('tag_name')
@@ -337,4 +340,6 @@ def create_tag(**kwargs) -> int:
     except RepositoryError as e:
         _print_error(f'Repository error: {e}')
         return -1
-
+    except TagAlreadyExistsError as e:
+        _print_error(f'Tag error: {e}')
+        return -1
