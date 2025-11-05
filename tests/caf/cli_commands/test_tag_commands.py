@@ -51,7 +51,7 @@ def test_create_tag_command(temp_repo: Repository, commit_hash: str, capsys: Cap
 
 def test_create_tag_no_repo(temp_repo_dir: Path, commit_hash: str, capsys: CaptureFixture[str]):
     """Tests 'create_tag' on a non-existent repository."""
-    assert cli_commands.create_tag(working_dir_path=temp_repo_dir,
+    assert cli_commands.create_tag(working_dir_path="dummy/path",
                                    tag_name='v1.0', commit_hash=commit_hash) == -1
     assert 'No repository found' in capsys.readouterr().err
 
