@@ -11,9 +11,10 @@ from typing import Concatenate
 
 from . import Blob, Commit, Tree, TreeRecord, TreeRecordType
 from .constants import (DEFAULT_BRANCH, DEFAULT_REPO_DIR, HASH_CHARSET, HASH_LENGTH, HEADS_DIR, HEAD_FILE,
-                        OBJECTS_SUBDIR, REFS_DIR)
+                        OBJECTS_SUBDIR, REFS_DIR, TAGS_DIR)
 from .plumbing import hash_object, load_commit, load_tree, save_commit, save_file_content, save_tree
 from .ref import HashRef, Ref, RefError, SymRef, read_ref, write_ref
+from .tag import TagNotInTagsDirError, Tag, write_tag
 
 
 class RepositoryError(Exception):
@@ -99,6 +100,9 @@ class Repository:
         heads_dir = self.heads_dir()
         heads_dir.mkdir(parents=True)
 
+        tags_dir = self.tags_dir()
+        tags_dir.mkdir(parents=True)
+
         self.add_branch(default_branch)
 
         write_ref(self.head_file(), branch_ref(default_branch))
@@ -132,6 +136,12 @@ class Repository:
 
         :return: The path to the heads directory."""
         return self.refs_dir() / HEADS_DIR
+    
+    def tags_dir(self) -> Path:
+        """Get the path to the tags directory within the repository.
+
+        :return: The path to the tags directory."""
+        return self.refs_dir() / TAGS_DIR
 
     @staticmethod
     def requires_repo[**P, R](func: Callable[Concatenate['Repository', P], R]) -> \
@@ -551,6 +561,75 @@ class Repository:
 
         :return: The path to the HEAD file."""
         return self.repo_path() / HEAD_FILE
+    
+    @requires_repo
+    def tags(self) -> list[str]:
+        """Get a list of all tags in the repository.
+
+        :return: A list of tag names.
+        :raises RepositoryNotFoundError: If the repository does not exist."""
+        return [x.name for x in self.tags_dir().iterdir() if x.is_file()]
+    
+    @requires_repo
+    def delete_tag(self, tag_name: str) -> None:
+        """Delete a tag from the repository.
+
+        :param tag_name: The name of the tag to delete.
+        :raises ValueError: If the tag name is empty.
+        :raises RepositoryNotFoundError: If the repository does not exist."""
+        if not tag_name:
+            msg = 'Tag name is required'
+            raise ValueError(msg)
+        tag_path = self.tags_dir() / tag_name
+
+        if not tag_path.exists():
+            raise TagNotInTagsDirError(tag_name)
+
+        tag_path.unlink()
+
+    @requires_repo
+    def create_tag(self, tag_name: str, commit_hash: str) -> None:
+        """Add a new tag to the repository.
+
+        :param tag_name: The name of the tag to add.
+        :param commit_hash: The hash of the commit the tag will point to.
+        :raises ValueError: If the tag name is empty.
+        :raises RepositoryError: If the tag already exists.
+        :raises RepositoryNotFoundError: If the repository does not exist."""
+        if not tag_name:
+            msg = 'Tag name is required'
+            raise ValueError(msg)
+                
+        if not commit_hash or len(commit_hash) != HASH_LENGTH or not all(c in HASH_CHARSET for c in commit_hash):
+            msg = f'Invalid commit hash: {commit_hash}'
+            raise ValueError(msg)
+        
+        if not self.object_exists(commit_hash):
+            msg = f'Commit with hash "{commit_hash}" does not exist'
+            raise RepositoryError(msg)
+        
+        try:
+            commit = load_commit(self.objects_dir(), HashRef(commit_hash))
+            if not commit:
+                msg = f'Commit with hash "{commit_hash}" could not be loaded'
+                raise RepositoryError(msg)
+        except Exception as e:
+            raise RepositoryError(e) from e
+        
+        tag_path = self.tags_dir() / tag_name
+        write_tag(tag_path, Tag(commit_hash))
+
+    @requires_repo
+    def object_exists(self, object_hash: str) -> bool:
+        """Check if an object with the given hash exists in the repository.
+
+        :param object_hash: The hash of the object to check.
+        :return: True if the object exists, False otherwise.
+        :raises RepositoryNotFoundError: If the repository does not exist."""
+        if not object_hash:
+            return False
+        object_path = self.objects_dir() / object_hash[:2] / object_hash
+        return object_path.is_file()
 
 
 def branch_ref(branch: str) -> SymRef:

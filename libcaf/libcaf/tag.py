@@ -1,5 +1,5 @@
 from pathlib import Path
-from ref import HashRef, RefError, read_ref, write_ref
+from .ref import HashRef, RefError, read_ref, write_ref
 
 from .constants import HASH_CHARSET, HASH_LENGTH
 
@@ -10,13 +10,13 @@ class TagNotInTagsDirError(TagError):
     """Exception raised when a tag file is not located in a 'tags' directory."""
 
     def __init__(self, tag_file: str) -> None:
-        super().__init__(f"Tag Not In 'tags' Directory Error: {tag_file}")
+        super().__init__(f"Tag '{tag_file}' Not In 'tags' Directory")
 
 class TagAlreadyExistsError(TagError):
     """Exception raised when attempting to create a tag that already exists."""
 
     def __init__(self, tag_file: str) -> None:
-        super().__init__(f"Tag Already Exists Error: {tag_file}")
+        super().__init__(f"Tag '{tag_file}' Already Exists")
 
 # A tag is basically just a hash reference
 Tag = HashRef
