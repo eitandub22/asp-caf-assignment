@@ -588,6 +588,23 @@ class Repository:
         tag_path.unlink()
 
     @requires_repo
+    def tags(self) -> list[str]:
+        """Get a list of all tags in the repository.
+
+        :return: A list of tag names.
+        :raises RepositoryNotFoundError: If the repository does not exist."""
+        return [x.name for x in self.tags_dir().iterdir() if x.is_file()]
+    
+    @requires_repo
+    def tag_exists(self, tag_name: str) -> bool:
+        """Check if a tag exists in the repository.
+
+        :param tag_name: The name of the tag to check.
+        :return: True if the tag exists, False otherwise.
+        :raises RepositoryNotFoundError: If the repository does not exist."""
+        return (self.tags_dir() / tag_name).exists()
+    
+    @requires_repo
     def create_tag(self, tag_name: str, commit_hash: str) -> None:
         """Add a new tag to the repository.
 
@@ -638,3 +655,5 @@ def branch_ref(branch: str) -> SymRef:
     :param branch: The name of the branch.
     :return: A SymRef object representing the branch reference."""
     return SymRef(f'{HEADS_DIR}/{branch}')
+
+
