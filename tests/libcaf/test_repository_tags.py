@@ -32,7 +32,7 @@ def test_create_tag_success(temp_repo: Repository, commit_hash: HashRef):
 def test_create_tag_already_exists(temp_repo: Repository, commit_hash: HashRef):
     """Tests that creating a duplicate tag raises an error."""
     temp_repo.create_tag('v1.0', commit_hash)
-
+    
     with pytest.raises(TagAlreadyExistsError):
         temp_repo.create_tag('v1.0', commit_hash)
 
