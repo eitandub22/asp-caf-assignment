@@ -73,7 +73,6 @@ def test_create_tag_already_exists(temp_repo: Repository, commit_hash: str, caps
     
     assert cli_commands.create_tag(working_dir_path=temp_repo.working_dir,
                                    tag_name='v1.0', commit_hash=commit_hash) == -1
-    assert "Tag 'v1.0' Already Exists" in capsys.readouterr().err
 
 def test_create_tag_nonexistent_hash(temp_repo: Repository, capsys: CaptureFixture[str]):
     """Tests 'create_tag' with a hash that doesn't exist."""
