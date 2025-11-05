@@ -2,6 +2,7 @@ import pytest
 from pathlib import Path
 from libcaf.repository import Repository, RepositoryError, HashRef
 from libcaf.constants import HASH_LENGTH
+from libcaf.tag import TagNotInTagsDirError
 
 @pytest.fixture
 def commit_hash(temp_repo: Repository) -> HashRef:

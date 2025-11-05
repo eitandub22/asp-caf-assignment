@@ -4,6 +4,7 @@ from collections.abc import Callable
 from libcaf.repository import Repository
 from pytest import CaptureFixture
 from caf import cli_commands
+from libcaf.constants import HASH_LENGTH
 
 # We need a fixture to get a commit hash.
 # Your test_log_command.py and others use `parse_commit_hash`.
