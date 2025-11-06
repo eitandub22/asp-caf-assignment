@@ -9,12 +9,12 @@ from functools import wraps
 from pathlib import Path
 from typing import Concatenate
 
-from . import Blob, Commit, Tree, TreeRecord, TreeRecordType
+from . import Blob, Commit, Tree, TreeRecord, TreeRecordType, Tag
 from .constants import (DEFAULT_BRANCH, DEFAULT_REPO_DIR, HASH_CHARSET, HASH_LENGTH, HEADS_DIR, HEAD_FILE,
                         OBJECTS_SUBDIR, REFS_DIR, TAGS_DIR)
-from .plumbing import hash_object, load_commit, load_tree, save_commit, save_file_content, save_tree
+from .plumbing import hash_object, load_commit, load_tree, save_commit, save_file_content, save_tree, save_tag
 from .ref import HashRef, Ref, RefError, SymRef, read_ref, write_ref
-from .tag import TagNotFound, Tag, TagExistsError, TagError, UnknownHashError
+from .tag import TagNotFound, TagExistsError, TagError, UnknownHashError
 
 
 class RepositoryError(Exception):
@@ -636,8 +636,10 @@ class Repository:
             raise TagExistsError(tag_path)
 
         try:
-            # Write the tag as if it were a reference, which it is
-            write_ref(tag_path, Tag(commit_hash))
+            tag_obj = Tag(tag_name, commit_hash)
+            tag_object_hash = hash_object(tag_obj)
+            save_tag(self.objects_dir(), tag_obj)
+            write_ref(tag_path, tag_object_hash)
         except RefError as e:
             raise TagError(f"Failed to write tag to {tag_path}: {e}") from e
 

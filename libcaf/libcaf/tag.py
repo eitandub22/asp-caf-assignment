@@ -1,5 +1,3 @@
-from .ref import HashRef
-
 class TagError(Exception):
     """Base class for all tag-related errors."""
 
@@ -20,8 +18,3 @@ class UnknownHashError(TagError):
 
     def __init__(self, hash_str: str) -> None:
         super().__init__(f"Unknown commit hash: '{hash_str}'")
-
-# A tag is basically just a hash reference
-class Tag(HashRef):
-    """Represents a tag in the version control system."""
-    pass

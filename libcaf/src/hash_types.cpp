@@ -19,3 +19,7 @@ std::string hash_object(const Commit& commit) {
     return hash_string(commit.tree_hash + commit.author + commit.message +
                        std::to_string(commit.timestamp) + commit.parent.value_or(""));
 }
+
+std::string hash_object(const Tag& tag) {
+    return hash_string(tag.name + tag.commit_hash);
+}
