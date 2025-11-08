@@ -8,9 +8,8 @@ from pathlib import Path
 from libcaf.constants import DEFAULT_BRANCH
 from libcaf.plumbing import hash_file as plumbing_hash_file
 from libcaf.ref import SymRef
-from libcaf.repository import (AddedDiff, Diff, ModifiedDiff, MovedToDiff, RemovedDiff, Repository, RepositoryError,
-                               RepositoryNotFoundError)
-from libcaf.tag import TagNotFound, TagExistsError, UnknownHashError
+from libcaf.repository import (AddedDiff, Diff, ModifiedDiff, MovedToDiff, RemovedDiff, Repository)
+from libcaf.exceptions import TagNotFound, TagExistsError, UnknownHashError, RepositoryError, RepositoryNotFoundError
 
 def _print_error(message: str) -> None:
     print(f'❌ Error: {message}', file=sys.stderr)

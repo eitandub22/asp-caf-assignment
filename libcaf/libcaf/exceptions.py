@@ -1,3 +1,10 @@
+class RepositoryError(Exception):
+    """Exception raised for repository-related errors."""
+
+
+class RepositoryNotFoundError(RepositoryError):
+    """Exception raised when a repository is not found."""
+
 class TagError(Exception):
     """Base class for all tag-related errors."""
 

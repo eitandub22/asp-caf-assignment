@@ -1,7 +1,7 @@
 import pytest
-from libcaf.repository import Repository, RepositoryError, HashRef
+from libcaf.repository import Repository, HashRef
 from libcaf.constants import HASH_LENGTH
-from libcaf.tag import TagNotFound, TagExistsError, UnknownHashError
+from libcaf.exceptions import TagNotFound, TagExistsError, UnknownHashError, RepositoryError
 
 def test_init_creates_tags_dir(temp_repo: Repository):
     """Tests that the 'tags' directory is created by repo.init()."""

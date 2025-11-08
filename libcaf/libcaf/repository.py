@@ -14,16 +14,7 @@ from .constants import (DEFAULT_BRANCH, DEFAULT_REPO_DIR, HASH_CHARSET, HASH_LEN
                         OBJECTS_SUBDIR, REFS_DIR, TAGS_DIR)
 from .plumbing import hash_object, load_commit, load_tree, save_commit, save_file_content, save_tree, save_tag
 from .ref import HashRef, Ref, RefError, SymRef, read_ref, write_ref
-from .tag import TagNotFound, TagExistsError, TagError, UnknownHashError
-
-
-class RepositoryError(Exception):
-    """Exception raised for repository-related errors."""
-
-
-class RepositoryNotFoundError(RepositoryError):
-    """Exception raised when a repository is not found."""
-
+from .exceptions import TagNotFound, TagExistsError, TagError, UnknownHashError, RepositoryError, RepositoryNotFoundError
 
 @dataclass
 class Diff:
