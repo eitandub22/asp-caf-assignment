@@ -21,12 +21,15 @@ PYBIND11_MODULE(_libcaf, m) {
     m.def("hash_object", py::overload_cast<const Blob&>(&hash_object), py::arg("blob"));
     m.def("hash_object", py::overload_cast<const Tree&>(&hash_object), py::arg("tree"));
     m.def("hash_object", py::overload_cast<const Commit&>(&hash_object), py::arg("commit"));
+    m.def("hash_object", py::overload_cast<const Tag&>(&hash_object), py::arg("tag"));
 
     // object_io
     m.def("save_commit", &save_commit);
     m.def("load_commit", &load_commit);
     m.def("save_tree", &save_tree);
     m.def("load_tree", &load_tree);
+    m.def("save_tag", &save_tag);
+    m.def("load_tag", &load_tag);
 
     py::class_<Blob>(m, "Blob")
     .def(py::init<std::string>())
@@ -58,4 +61,12 @@ PYBIND11_MODULE(_libcaf, m) {
         .def_readonly("message", &Commit::message)
         .def_readonly("timestamp", &Commit::timestamp)
         .def_readonly("parent", &Commit::parent);
+
+    py::class_<Tag>(m, "Tag")
+        .def(py::init<const std::string&, const std::string&, const std::string&, const std::string&, time_t>())
+        .def_readonly("name", &Tag::name)
+        .def_readonly("commit_hash", &Tag::commit_hash)
+        .def_readonly("author", &Tag::author)
+        .def_readonly("message", &Tag::message)
+        .def_readonly("timestamp", &Tag::timestamp);
 }

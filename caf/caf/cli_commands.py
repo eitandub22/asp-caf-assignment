@@ -8,9 +8,8 @@ from pathlib import Path
 from libcaf.constants import DEFAULT_BRANCH
 from libcaf.plumbing import hash_file as plumbing_hash_file
 from libcaf.ref import SymRef
-from libcaf.repository import (AddedDiff, Diff, ModifiedDiff, MovedToDiff, RemovedDiff, Repository, RepositoryError,
-                               RepositoryNotFoundError)
-from libcaf.tag import TagNotInTagsDirError, TagAlreadyExistsError
+from libcaf.repository import (AddedDiff, Diff, ModifiedDiff, MovedToDiff, RemovedDiff, Repository)
+from libcaf.exceptions import TagNotFound, TagExistsError, UnknownHashError, RepositoryError, RepositoryNotFoundError
 
 def _print_error(message: str) -> None:
     print(f'❌ Error: {message}', file=sys.stderr)
@@ -289,7 +288,12 @@ def tags(**kwargs) -> int:
         _print_success('Tags:')
 
         for tag in tags:
-            print(f'{"":4}{tag}')
+            print(f'{"":4}-{tag.name}')
+            print(f'{"":8}Author: {tag.author}')
+            print(f'{"":8}Message: {tag.message}')
+            print(f'{"":8}Date: {datetime.fromtimestamp(tag.timestamp)}')
+
+        return 0
     except RepositoryNotFoundError:
         _print_error(f'No repository found at {repo.repo_path()}')
         return -1
@@ -310,17 +314,16 @@ def delete_tag(**kwargs) -> int:
     except RepositoryNotFoundError:
         _print_error(f'No repository found at {repo.repo_path()}')
         return -1
-    except TagNotInTagsDirError as e:
-        _print_error(f'Tag error: {e}')
-        return -1
-    except ValueError as e:
-        _print_error(f'Value error: {e}')
+    except TagNotFound as e:
+        _print_error(f'Tag not found: {e}')
         return -1
 
 def create_tag(**kwargs) -> int:
     repo = _repo_from_cli_kwargs(kwargs)
     tag_name = kwargs.get('tag_name')
     commit_hash = kwargs.get('commit_hash')
+    author = kwargs.get('author')
+    message = kwargs.get('message')
 
     if not tag_name:
         _print_error('Tag name is required.')
@@ -330,8 +333,16 @@ def create_tag(**kwargs) -> int:
         _print_error('Commit hash is required.')
         return -1
     
+    if not author:
+        _print_error('Author is required.')
+        return -1
+    
+    if not message:
+        _print_error('Message is required.')
+        return -1
+
     try:
-        repo.create_tag(tag_name, commit_hash)
+        repo.create_tag(tag_name, commit_hash, author, message)
         _print_success(f'Tag "{tag_name}" created.')
         return 0
     except RepositoryNotFoundError:
@@ -340,6 +351,9 @@ def create_tag(**kwargs) -> int:
     except RepositoryError as e:
         _print_error(f'Repository error: {e}')
         return -1
-    except TagAlreadyExistsError as e:
-        _print_error(f'Tag error: {e}')
+    except TagExistsError as e:
+        _print_error(e)
+        return -1
+    except UnknownHashError as e:
+        _print_error(f'commit hash does not exist: {e}')
         return -1

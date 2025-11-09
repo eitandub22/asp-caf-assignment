@@ -157,3 +157,43 @@ TreeRecord load_tree_record(int fd) {
 
     return TreeRecord(record_type, hash, name);
 }
+
+void save_tag(const std::string &root_dir, const Tag &tag) {
+    std::string tag_hash = hash_object(tag);
+
+    int fd = open_content_for_writing(root_dir, tag_hash);
+
+    try {
+        write_with_length(fd, tag.name);
+        write_with_length(fd, tag.commit_hash);
+        write_with_length(fd, tag.author);
+        write_with_length(fd, tag.message);
+
+        if (write(fd, &tag.timestamp, sizeof(tag.timestamp)) != sizeof(tag.timestamp))
+            throw std::runtime_error("Failed to write date");
+
+        flock(fd, LOCK_UN);
+        close(fd);
+    } catch (const std::exception &e) {
+        delete_content(root_dir, tag_hash);
+        throw;
+    }
+}
+
+Tag load_tag(const std::string &root_dir, const std::string &hash) {
+    int fd = open_content_for_reading(root_dir.c_str(), hash.c_str());
+
+    std::string name = read_length_prefixed_string(fd);
+    std::string commit_hash = read_length_prefixed_string(fd);
+    std::string author = read_length_prefixed_string(fd);
+    std::string message = read_length_prefixed_string(fd);
+    
+    uint64_t date;
+    if (read(fd, &date, sizeof(date)) != sizeof(date))
+        throw std::runtime_error("Failed to read date");
+
+    flock(fd, LOCK_UN);
+    close(fd);
+
+    return Tag(name, commit_hash, author, message, date);
+}

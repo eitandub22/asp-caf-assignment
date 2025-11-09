@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import IO
 
 import _libcaf
-from _libcaf import Blob, Commit, Tree
+from _libcaf import Blob, Commit, Tree, Tag
 
 from .ref import HashRef
 
@@ -16,7 +16,7 @@ def hash_file(filename: str | Path) -> str:
 
     return _libcaf.hash_file(filename)
 
-def hash_object(obj: Blob | Commit | Tree) -> HashRef:
+def hash_object(obj: Blob | Commit | Tree | Tag) -> HashRef:
     return HashRef(_libcaf.hash_object(obj))
 
 def open_content_for_reading(root_dir: str | Path, hash_value: str) -> IO[bytes]:
@@ -81,6 +81,19 @@ def load_tree(root_dir: str | Path, hash_value: str) -> Tree:
 
     return _libcaf.load_tree(root_dir, hash_value)
 
+def save_tag(root_dir: str | Path, tag: Tag) -> None:
+    if isinstance(root_dir, Path):
+        root_dir = str(root_dir)
+
+    _libcaf.save_tag(root_dir, tag)
+
+
+def load_tag(root_dir: str | Path, hash_value: str) -> Tag:
+    if isinstance(root_dir, Path):
+        root_dir = str(root_dir)
+
+    return _libcaf.load_tag(root_dir, hash_value)
+
 
 __all__ = [
     'delete_content',
@@ -93,4 +106,6 @@ __all__ = [
     'save_commit',
     'save_file_content',
     'save_tree',
+    'save_tag',
+    'load_tag',
 ]

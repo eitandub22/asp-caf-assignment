@@ -9,21 +9,12 @@ from functools import wraps
 from pathlib import Path
 from typing import Concatenate
 
-from . import Blob, Commit, Tree, TreeRecord, TreeRecordType
+from . import Blob, Commit, Tree, TreeRecord, TreeRecordType, Tag
 from .constants import (DEFAULT_BRANCH, DEFAULT_REPO_DIR, HASH_CHARSET, HASH_LENGTH, HEADS_DIR, HEAD_FILE,
                         OBJECTS_SUBDIR, REFS_DIR, TAGS_DIR)
-from .plumbing import hash_object, load_commit, load_tree, save_commit, save_file_content, save_tree
+from .plumbing import hash_object, load_commit, load_tree, save_commit, save_file_content, save_tree, save_tag, load_tag
 from .ref import HashRef, Ref, RefError, SymRef, read_ref, write_ref
-from .tag import TagNotInTagsDirError, Tag, write_tag
-
-
-class RepositoryError(Exception):
-    """Exception raised for repository-related errors."""
-
-
-class RepositoryNotFoundError(RepositoryError):
-    """Exception raised when a repository is not found."""
-
+from .exceptions import TagNotFound, TagExistsError, TagError, UnknownHashError, RepositoryError, RepositoryNotFoundError
 
 @dataclass
 class Diff:
@@ -563,12 +554,21 @@ class Repository:
         return self.repo_path() / HEAD_FILE
     
     @requires_repo
-    def tags(self) -> list[str]:
+    def tags(self) -> list[Tag]:
         """Get a list of all tags in the repository.
 
-        :return: A list of tag names.
+        :return: A list of tags.
         :raises RepositoryNotFoundError: If the repository does not exist."""
-        return [x.name for x in self.tags_dir().iterdir() if x.is_file()]
+        tags = []
+        tag_names = [x.name for x in self.tags_dir().iterdir() if x.is_file()]
+
+        for tag_name in tag_names:
+            tag_path = self.tags_dir() / tag_name
+            tag_object_hash = read_ref(tag_path)
+            tag = load_tag(self.objects_dir(), tag_object_hash)
+            tags.append(tag)
+
+        return tags
     
     @requires_repo
     def delete_tag(self, tag_name: str) -> None:
@@ -583,24 +583,18 @@ class Repository:
         tag_path = self.tags_dir() / tag_name
 
         if not tag_path.exists():
-            raise TagNotInTagsDirError(tag_name)
+            raise TagNotFound(tag_name)
 
         tag_path.unlink()
-
-    @requires_repo
-    def tags(self) -> list[str]:
-        """Get a list of all tags in the repository.
-
-        :return: A list of tag names.
-        :raises RepositoryNotFoundError: If the repository does not exist."""
-        return [x.name for x in self.tags_dir().iterdir() if x.is_file()]
     
     @requires_repo
-    def create_tag(self, tag_name: str, commit_hash: str) -> None:
+    def create_tag(self, tag_name: str, commit_hash: str, author: str, message: str) -> None:
         """Add a new tag to the repository.
 
         :param tag_name: The name of the tag to add.
         :param commit_hash: The hash of the commit the tag will point to.
+        :param author: The name of the tag author.
+        :param message: The tag message.
         :raises ValueError: If the tag name is empty.
         :raises RepositoryError: If the tag already exists.
         :raises RepositoryNotFoundError: If the repository does not exist."""
@@ -612,32 +606,44 @@ class Repository:
             msg = f'Invalid commit hash: {commit_hash}'
             raise ValueError(msg)
         
-        if not self.object_exists(commit_hash):
-            msg = f'Commit with hash "{commit_hash}" does not exist'
-            raise RepositoryError(msg)
+        if not author:
+            msg = 'Tag author is required'
+            raise ValueError(msg)
+        
+        if not message:
+            msg = 'Tag message is required'
+            raise ValueError(msg)
+        
+        # Verify that the commit exists
+        if not (self.objects_dir() / commit_hash[:2] / commit_hash).is_file():
+            raise UnknownHashError(commit_hash)
         
         try:
             commit = load_commit(self.objects_dir(), HashRef(commit_hash))
             if not commit:
                 msg = f'Commit with hash "{commit_hash}" could not be loaded'
                 raise RepositoryError(msg)
+
         except Exception as e:
             raise RepositoryError(e) from e
         
         tag_path = self.tags_dir() / tag_name
-        write_tag(tag_path, Tag(commit_hash))
 
-    @requires_repo
-    def object_exists(self, object_hash: str) -> bool:
-        """Check if an object with the given hash exists in the repository.
+        # Ensure the tag file is in a 'tags' directory
+        if tag_path.parent.name != "tags":
+            raise TagNotFound(tag_path)
 
-        :param object_hash: The hash of the object to check.
-        :return: True if the object exists, False otherwise.
-        :raises RepositoryNotFoundError: If the repository does not exist."""
-        if not object_hash:
-            return False
-        object_path = self.objects_dir() / object_hash[:2] / object_hash
-        return object_path.is_file()
+        # Check if the tag already exists, to avoid overwriting
+        if tag_path.exists():
+            raise TagExistsError(tag_path)
+
+        try:
+            tag_obj = Tag(tag_name, commit_hash, author, message, int(datetime.now().timestamp()))
+            tag_object_hash = hash_object(tag_obj)
+            save_tag(self.objects_dir(), tag_obj)
+            write_ref(tag_path, tag_object_hash)
+        except RefError as e:
+            raise TagError(f"Failed to write tag to {tag_path}: {e}") from e
 
 
 def branch_ref(branch: str) -> SymRef:
