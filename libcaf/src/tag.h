@@ -9,7 +9,7 @@ public:
     const std::string commit_hash;
     const std::string author;
     const std::string message;
-    const std::string date;
+    const std::string date; // NOTE(daniel): A date is a string for simplicity and interoperability with python. We assume the user won't enter something other then dates.
 
     Tag(const std::string& name, const std::string& commit_hash, const std::string& author, const std::string& message, const std::string& date)
         : name(name), commit_hash(commit_hash), author(author), message(message), date(date) {}
