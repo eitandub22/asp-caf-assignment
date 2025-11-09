@@ -21,5 +21,5 @@ std::string hash_object(const Commit& commit) {
 }
 
 std::string hash_object(const Tag& tag) {
-    return hash_string(tag.name + tag.commit_hash);
+    return hash_string(tag.name + tag.commit_hash + tag.author + tag.message + std::to_string(tag.timestamp));
 }
