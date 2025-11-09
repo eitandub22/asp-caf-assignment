@@ -618,7 +618,7 @@ class Repository:
             raise ValueError(msg)
         
         if not author:
-            msg = 'Author is required'
+            msg = 'Tag author is required'
             raise ValueError(msg)
         
         if not message:

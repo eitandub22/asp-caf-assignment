@@ -333,13 +333,16 @@ def create_tag(**kwargs) -> int:
         return -1
     
     if not author:
-        author = "No Author"
+        _print_error('Author is required.')
+        return -1
     
     if not message:
-        message = "No Message"
-    
+        _print_error('Message is required.')
+        return -1
+
     if not date:
-        date = datetime.now().__str__()
+        _print_error('Date is required.')
+        return -1
 
     try:
         repo.create_tag(tag_name, commit_hash, author, message, date)

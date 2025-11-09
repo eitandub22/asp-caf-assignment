@@ -4,6 +4,7 @@ import argparse
 import sys
 from typing import Any
 from datetime import datetime
+import os
 
 from libcaf.constants import DEFAULT_REPO_DIR
 
@@ -177,17 +178,17 @@ def cli() -> None:
                 'author': {
                     'type': str,
                     'help': '👤 Author of the tag',
-                    'default': 'No Author',
+                    # 'default': os.getlogin(),
                 },
                 'message': {
                     'type': str,
                     'help': '💬 message for the tag',
-                    'default': 'No Message',
+                    # 'default': '',
                 },
                 'date': {
                     'type': str,
                     'help': '📅 Date for the tag',
-                    'default': datetime.now().__str__(),
+                    # 'default': datetime.now().__str__(),
                 },
             },
             'help': 'Create a new tag'

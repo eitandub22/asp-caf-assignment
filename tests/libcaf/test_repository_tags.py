@@ -38,6 +38,21 @@ def test_create_tag_invalid_hash(temp_repo: Repository):
     with pytest.raises(ValueError, match="Invalid commit hash"):
         temp_repo.create_tag('v1.0', 'not-a-hash', 'Some author', 'Some message', 'Some date')
 
+def test_create_tag_no_author(temp_repo: Repository, commit_hash: HashRef):
+    """Tests creating a tag with no author."""
+    with pytest.raises(ValueError, match="Tag author is required"):
+        temp_repo.create_tag('v1.0', commit_hash, None, 'Some message', 'Some date')
+
+def test_create_tag_no_message(temp_repo: Repository, commit_hash: HashRef):
+    """Tests creating a tag with no message."""
+    with pytest.raises(ValueError, match="Tag message is required"):
+        temp_repo.create_tag('v1.0', commit_hash, 'Some author', None, 'Some date')
+
+def test_create_tag_no_date(temp_repo: Repository, commit_hash: HashRef):
+    """Tests creating a tag with no date."""
+    with pytest.raises(ValueError, match="Tag date is required"):
+        temp_repo.create_tag('v1.0', commit_hash, 'Some author', 'Some message', None)
+
 def test_create_tag_nonexistent_object(temp_repo: Repository):
     """Tests creating a tag pointing to an object that doesn't exist."""
     non_existent_hash = 'a' * HASH_LENGTH
