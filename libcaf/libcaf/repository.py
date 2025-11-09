@@ -12,7 +12,7 @@ from typing import Concatenate
 from . import Blob, Commit, Tree, TreeRecord, TreeRecordType, Tag
 from .constants import (DEFAULT_BRANCH, DEFAULT_REPO_DIR, HASH_CHARSET, HASH_LENGTH, HEADS_DIR, HEAD_FILE,
                         OBJECTS_SUBDIR, REFS_DIR, TAGS_DIR)
-from .plumbing import hash_object, load_commit, load_tree, save_commit, save_file_content, save_tree, save_tag
+from .plumbing import hash_object, load_commit, load_tree, save_commit, save_file_content, save_tree, save_tag, load_tag
 from .ref import HashRef, Ref, RefError, SymRef, read_ref, write_ref
 from .exceptions import TagNotFound, TagExistsError, TagError, UnknownHashError, RepositoryError, RepositoryNotFoundError
 
@@ -553,13 +553,32 @@ class Repository:
         :return: The path to the HEAD file."""
         return self.repo_path() / HEAD_FILE
     
+    # NOTE(daniel): only gives the tag names
+    # @requires_repo
+    # def tags(self) -> list[str]:
+    #     """Get a list of all tags in the repository.
+
+    #     :return: A list of tag names.
+    #     :raises RepositoryNotFoundError: If the repository does not exist."""
+    #     return [x.name for x in self.tags_dir().iterdir() if x.is_file()]
+    
+    # NOTE(daniel): gives a list of Tag objects
     @requires_repo
-    def tags(self) -> list[str]:
+    def tags(self) -> list[Tag]:
         """Get a list of all tags in the repository.
 
-        :return: A list of tag names.
+        :return: A list of tags.
         :raises RepositoryNotFoundError: If the repository does not exist."""
-        return [x.name for x in self.tags_dir().iterdir() if x.is_file()]
+        tags = []
+        tag_names = [x.name for x in self.tags_dir().iterdir() if x.is_file()]
+
+        for tag_name in tag_names:
+            tag_path = self.tags_dir() / tag_name
+            tag_object_hash = read_ref(tag_path)
+            tag = load_tag(self.objects_dir(), tag_object_hash)
+            tags.append(tag)
+
+        return tags
     
     @requires_repo
     def delete_tag(self, tag_name: str) -> None:
@@ -577,21 +596,16 @@ class Repository:
             raise TagNotFound(tag_name)
 
         tag_path.unlink()
-
-    @requires_repo
-    def tags(self) -> list[str]:
-        """Get a list of all tags in the repository.
-
-        :return: A list of tag names.
-        :raises RepositoryNotFoundError: If the repository does not exist."""
-        return [x.name for x in self.tags_dir().iterdir() if x.is_file()]
     
     @requires_repo
-    def create_tag(self, tag_name: str, commit_hash: str) -> None:
+    def create_tag(self, tag_name: str, commit_hash: str, author: str, message: str, date: str) -> None:
         """Add a new tag to the repository.
 
         :param tag_name: The name of the tag to add.
         :param commit_hash: The hash of the commit the tag will point to.
+        :param author: The name of the tag author.
+        :param message: The tag message.
+        :param date: The tag date.
         :raises ValueError: If the tag name is empty.
         :raises RepositoryError: If the tag already exists.
         :raises RepositoryNotFoundError: If the repository does not exist."""
@@ -603,6 +617,18 @@ class Repository:
             msg = f'Invalid commit hash: {commit_hash}'
             raise ValueError(msg)
         
+        if not author:
+            msg = 'Author is required'
+            raise ValueError(msg)
+        
+        if not message:
+            msg = 'Tag message is required'
+            raise ValueError(msg)
+        
+        if not date:
+            msg = 'Tag date is required'
+            raise ValueError(msg)
+
         # Verify that the commit exists
         if not (self.objects_dir() / commit_hash[:2] / commit_hash).is_file():
             raise UnknownHashError(commit_hash)
@@ -627,7 +653,7 @@ class Repository:
             raise TagExistsError(tag_path)
 
         try:
-            tag_obj = Tag(tag_name, commit_hash)
+            tag_obj = Tag(tag_name, commit_hash, author, message, date)
             tag_object_hash = hash_object(tag_obj)
             save_tag(self.objects_dir(), tag_obj)
             write_ref(tag_path, tag_object_hash)

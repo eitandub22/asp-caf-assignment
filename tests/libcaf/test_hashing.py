@@ -37,7 +37,7 @@ def test_tree_hash() -> None:
     assert len(tree_hash) == HASH_LENGTH
 
 def test_tag_hash() -> None:
-    tag = Tag('testTag', '1234567890abcdef')
+    tag = Tag('testTag', '1234567890abcdef', 'Some Author', 'Some Message', 'Some Date')
     tag_hash = hash_object(tag)
 
     assert tag_hash is not None
@@ -74,8 +74,8 @@ def test_same_tree_objects_get_same_hash() -> None:
     assert hash_object(tree1) == hash_object(tree2)
 
 def test_same_tag_objects_get_same_hash() -> None:
-    tag1 = Tag('testTag', '1234567890abcdef')
-    tag2 = Tag('testTag', '1234567890abcdef')
+    tag1 = Tag('testTag', '1234567890abcdef', 'Some Author', 'Some Message', 'Some Date')
+    tag2 = Tag('testTag', '1234567890abcdef', 'Some Author', 'Some Message', 'Some Date')
 
     assert hash_object(tag1) == hash_object(tag2)
 
@@ -127,7 +127,7 @@ def test_different_hashes_for_different_parent_commits_one_none() -> None:
     assert hash1 != hash2, 'Hashes for commits with different parent hashes one none should not match'
 
 def test_different_hashes_for_different_tags() -> None:
-    tag1 = Tag('testTag1', '1234567890abcdef')
-    tag2 = Tag('testTag2', 'abcdef1234567890')
+    tag1 = Tag('testTag1', '1234567890abcdef', 'Some Author', 'Some Message', 'Some Date')
+    tag2 = Tag('testTag2', 'abcdef1234567890', 'Another Author', 'Another Message', 'Another Date')
 
     assert hash_object(tag1) != hash_object(tag2)

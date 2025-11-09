@@ -3,6 +3,7 @@
 import argparse
 import sys
 from typing import Any
+from datetime import datetime
 
 from libcaf.constants import DEFAULT_REPO_DIR
 
@@ -172,6 +173,21 @@ def cli() -> None:
                 'commit_hash': {
                     'type': str,
                     'help': '🔖 Commit hash to tag',
+                },
+                'author': {
+                    'type': str,
+                    'help': '👤 Author of the tag',
+                    'default': 'No Author',
+                },
+                'message': {
+                    'type': str,
+                    'help': '💬 message for the tag',
+                    'default': 'No Message',
+                },
+                'date': {
+                    'type': str,
+                    'help': '📅 Date for the tag',
+                    'default': datetime.now().__str__(),
                 },
             },
             'help': 'Create a new tag'
