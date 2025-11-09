@@ -553,16 +553,6 @@ class Repository:
         :return: The path to the HEAD file."""
         return self.repo_path() / HEAD_FILE
     
-    # NOTE(daniel): only gives the tag names
-    # @requires_repo
-    # def tags(self) -> list[str]:
-    #     """Get a list of all tags in the repository.
-
-    #     :return: A list of tag names.
-    #     :raises RepositoryNotFoundError: If the repository does not exist."""
-    #     return [x.name for x in self.tags_dir().iterdir() if x.is_file()]
-    
-    # NOTE(daniel): gives a list of Tag objects
     @requires_repo
     def tags(self) -> list[Tag]:
         """Get a list of all tags in the repository.
@@ -598,14 +588,13 @@ class Repository:
         tag_path.unlink()
     
     @requires_repo
-    def create_tag(self, tag_name: str, commit_hash: str, author: str, message: str, date: str) -> None:
+    def create_tag(self, tag_name: str, commit_hash: str, author: str, message: str) -> None:
         """Add a new tag to the repository.
 
         :param tag_name: The name of the tag to add.
         :param commit_hash: The hash of the commit the tag will point to.
         :param author: The name of the tag author.
         :param message: The tag message.
-        :param date: The tag date.
         :raises ValueError: If the tag name is empty.
         :raises RepositoryError: If the tag already exists.
         :raises RepositoryNotFoundError: If the repository does not exist."""
@@ -625,10 +614,6 @@ class Repository:
             msg = 'Tag message is required'
             raise ValueError(msg)
         
-        if not date:
-            msg = 'Tag date is required'
-            raise ValueError(msg)
-
         # Verify that the commit exists
         if not (self.objects_dir() / commit_hash[:2] / commit_hash).is_file():
             raise UnknownHashError(commit_hash)
@@ -653,7 +638,7 @@ class Repository:
             raise TagExistsError(tag_path)
 
         try:
-            tag_obj = Tag(tag_name, commit_hash, author, message, date)
+            tag_obj = Tag(tag_name, commit_hash, author, message, int(datetime.now().timestamp()))
             tag_object_hash = hash_object(tag_obj)
             save_tag(self.objects_dir(), tag_obj)
             write_ref(tag_path, tag_object_hash)

@@ -291,7 +291,9 @@ def tags(**kwargs) -> int:
             print(f'{"":4}-{tag.name}')
             print(f'{"":8}Author: {tag.author}')
             print(f'{"":8}Message: {tag.message}')
-            print(f'{"":8}Date: {tag.date}')
+            print(f'{"":8}Date: {datetime.fromtimestamp(tag.timestamp)}')
+
+        return 0
     except RepositoryNotFoundError:
         _print_error(f'No repository found at {repo.repo_path()}')
         return -1
@@ -322,7 +324,6 @@ def create_tag(**kwargs) -> int:
     commit_hash = kwargs.get('commit_hash')
     author = kwargs.get('author')
     message = kwargs.get('message')
-    date = kwargs.get('date')
 
     if not tag_name:
         _print_error('Tag name is required.')
@@ -340,12 +341,8 @@ def create_tag(**kwargs) -> int:
         _print_error('Message is required.')
         return -1
 
-    if not date:
-        _print_error('Date is required.')
-        return -1
-
     try:
-        repo.create_tag(tag_name, commit_hash, author, message, date)
+        repo.create_tag(tag_name, commit_hash, author, message)
         _print_success(f'Tag "{tag_name}" created.')
         return 0
     except RepositoryNotFoundError:

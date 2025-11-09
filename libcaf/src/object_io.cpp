@@ -168,7 +168,9 @@ void save_tag(const std::string &root_dir, const Tag &tag) {
         write_with_length(fd, tag.commit_hash);
         write_with_length(fd, tag.author);
         write_with_length(fd, tag.message);
-        write_with_length(fd, tag.date);
+
+        if (write(fd, &tag.timestamp, sizeof(tag.timestamp)) != sizeof(tag.timestamp))
+            throw std::runtime_error("Failed to write date");
 
         flock(fd, LOCK_UN);
         close(fd);
@@ -185,7 +187,10 @@ Tag load_tag(const std::string &root_dir, const std::string &hash) {
     std::string commit_hash = read_length_prefixed_string(fd);
     std::string author = read_length_prefixed_string(fd);
     std::string message = read_length_prefixed_string(fd);
-    std::string date = read_length_prefixed_string(fd);
+    
+    uint64_t date;
+    if (read(fd, &date, sizeof(date)) != sizeof(date))
+        throw std::runtime_error("Failed to read date");
 
     flock(fd, LOCK_UN);
     close(fd);

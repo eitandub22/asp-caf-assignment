@@ -63,10 +63,10 @@ PYBIND11_MODULE(_libcaf, m) {
         .def_readonly("parent", &Commit::parent);
 
     py::class_<Tag>(m, "Tag")
-        .def(py::init<const std::string&, const std::string&, const std::string&, const std::string&, const std::string&>())
+        .def(py::init<const std::string&, const std::string&, const std::string&, const std::string&, time_t>())
         .def_readonly("name", &Tag::name)
         .def_readonly("commit_hash", &Tag::commit_hash)
         .def_readonly("author", &Tag::author)
         .def_readonly("message", &Tag::message)
-        .def_readonly("date", &Tag::date);
+        .def_readonly("timestamp", &Tag::timestamp);
 }

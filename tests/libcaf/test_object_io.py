@@ -50,7 +50,7 @@ def test_save_load_tree(temp_repo_dir: Path) -> None:
     assert loaded_tree.records == records
 
 def test_save_load_tag(temp_repo_dir: Path) -> None:
-    tag = Tag('v1.0', 'commit_hash_12345', 'Some Author', 'Some Message', datetime.now().__str__())
+    tag = Tag('v1.0', 'commit_hash_12345', 'Some Author', 'Some Message', int(datetime.now().timestamp()))
     tag_hash = hash_object(tag)
 
     save_tag(temp_repo_dir, tag)
@@ -60,4 +60,4 @@ def test_save_load_tag(temp_repo_dir: Path) -> None:
     assert loaded_tag.commit_hash == tag.commit_hash
     assert loaded_tag.author == tag.author
     assert loaded_tag.message == tag.message
-    assert loaded_tag.date == tag.date
+    assert loaded_tag.timestamp == tag.timestamp

@@ -178,17 +178,10 @@ def cli() -> None:
                 'author': {
                     'type': str,
                     'help': '👤 Author of the tag',
-                    # 'default': os.getlogin(),
                 },
                 'message': {
                     'type': str,
                     'help': '💬 message for the tag',
-                    # 'default': '',
-                },
-                'date': {
-                    'type': str,
-                    'help': '📅 Date for the tag',
-                    # 'default': datetime.now().__str__(),
                 },
             },
             'help': 'Create a new tag'
