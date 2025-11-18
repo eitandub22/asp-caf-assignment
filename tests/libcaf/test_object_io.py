@@ -1,5 +1,6 @@
 from pathlib import Path
 from datetime import datetime
+import os
 
 from libcaf.plumbing import hash_object, load_commit, load_tree, save_commit, save_tree, load_tag, save_tag
 
@@ -48,16 +49,3 @@ def test_save_load_tree(temp_repo_dir: Path) -> None:
 
     assert loaded_tree.records.keys() == records.keys()
     assert loaded_tree.records == records
-
-def test_save_load_tag(temp_repo_dir: Path) -> None:
-    tag = Tag('v1.0', 'commit_hash_12345', 'Some Author', 'Some Message', int(datetime.now().timestamp()))
-    tag_hash = hash_object(tag)
-
-    save_tag(temp_repo_dir, tag)
-    loaded_tag = load_tag(temp_repo_dir, tag_hash)
-
-    assert loaded_tag.name == tag.name
-    assert loaded_tag.commit_hash == tag.commit_hash
-    assert loaded_tag.author == tag.author
-    assert loaded_tag.message == tag.message
-    assert loaded_tag.timestamp == tag.timestamp

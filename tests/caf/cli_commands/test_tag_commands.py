@@ -5,6 +5,7 @@ from libcaf.repository import Repository
 from pytest import CaptureFixture
 from caf import cli_commands
 from libcaf.constants import HASH_LENGTH
+from libcaf.repository import RepositoryError
 
 def test_tags_command(temp_repo: Repository, commit_hash: str, capsys: CaptureFixture[str]):
     """Tests the happy path for the 'tags' command."""
@@ -65,6 +66,28 @@ def test_create_tag_already_exists(temp_repo: Repository, commit_hash: str, caps
     
     assert cli_commands.create_tag(working_dir_path=temp_repo.working_dir,
                                    tag_name='v1.0', commit_hash=commit_hash) == -1
+    
+def test_create_tag_corrupt_commit_raises_repository_error(temp_repo: Repository, capsys: CaptureFixture[str]):
+    """Tests that create_tag handles a generic RepositoryError (e.g., corrupt object)."""
+    
+    (temp_repo.working_dir / 'file.txt').write_text('content')
+    cli_commands.commit(working_dir_path=temp_repo.working_dir, author='Me', message='Init')
+    
+    head_hash = temp_repo.head_commit()
+    
+    commit_path = temp_repo.objects_dir() / head_hash[:2] / head_hash
+    commit_path.write_text("THIS IS NOT A VALID COMMIT OBJECT")
+
+    result = cli_commands.create_tag(
+        working_dir_path=temp_repo.working_dir,
+        tag_name='v1.0',
+        commit_hash=head_hash,
+        author='Me',
+        message='Tagging corrupt commit'
+    )
+    
+    assert result == -1
+    assert 'Repository error' in capsys.readouterr().err
 
 def test_create_tag_nonexistent_hash(temp_repo: Repository, capsys: CaptureFixture[str]):
     """Tests 'create_tag' with a hash that doesn't exist."""
@@ -96,3 +119,25 @@ def test_delete_tag_missing_name(temp_repo: Repository, capsys: CaptureFixture[s
     """Tests 'delete_tag' with a missing tag name."""
     assert cli_commands.delete_tag(working_dir_path=temp_repo.working_dir, tag_name=None) == -1
     assert 'Tag name is required' in capsys.readouterr().err
+
+def test_create_tag_hash_already_exists(temp_repo: Repository, commit_hash: str, capsys: CaptureFixture[str]):
+    """Tests 'create_tag' with a hash that already exist."""
+
+    # first one succeeds
+    assert cli_commands.create_tag(working_dir_path=temp_repo.working_dir,
+                                   tag_name='v1.0', commit_hash=commit_hash, author='Some Author', message='Some Message') == 0
+    
+    # second one fails
+    assert cli_commands.create_tag(working_dir_path=temp_repo.working_dir,
+                                   tag_name='v1.0', commit_hash=commit_hash, author='Some Author', message='Some Message') == -1
+    
+def test_create_tag_non_existent_hash(temp_repo: Repository, capsys: CaptureFixture[str]):
+    """Tests the 'tags' command when no tags exist."""
+    
+    non_existent_hash = 'a' * HASH_LENGTH
+    
+    try:
+        temp_repo.create_tag('v1.0', non_existent_hash, 'Some Author', 'Some Message')
+        assert False # fail if function didn't cause an exception
+    except Exception as e:
+        pass

@@ -620,18 +620,11 @@ class Repository:
         
         try:
             commit = load_commit(self.objects_dir(), HashRef(commit_hash))
-            if not commit:
-                msg = f'Commit with hash "{commit_hash}" could not be loaded'
-                raise RepositoryError(msg)
 
         except Exception as e:
             raise RepositoryError(e) from e
         
         tag_path = self.tags_dir() / tag_name
-
-        # Ensure the tag file is in a 'tags' directory
-        if tag_path.parent.name != "tags":
-            raise TagNotFound(tag_path)
 
         # Check if the tag already exists, to avoid overwriting
         if tag_path.exists():
