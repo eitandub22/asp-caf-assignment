@@ -65,6 +65,28 @@ def test_create_tag_already_exists(temp_repo: Repository, commit_hash: str, caps
     
     assert cli_commands.create_tag(working_dir_path=temp_repo.working_dir,
                                    tag_name='v1.0', commit_hash=commit_hash) == -1
+    
+def test_create_tag_corrupt_commit_raises_repository_error(temp_repo: Repository, capsys: CaptureFixture[str]):
+    """Tests that create_tag handles a generic RepositoryError (e.g., corrupt object)."""
+    
+    (temp_repo.working_dir / 'file.txt').write_text('content')
+    cli_commands.commit(working_dir_path=temp_repo.working_dir, author='Me', message='Init')
+    
+    head_hash = temp_repo.head_commit()
+    
+    commit_path = temp_repo.objects_dir() / head_hash[:2] / head_hash
+    commit_path.write_text("THIS IS NOT A VALID COMMIT OBJECT")
+
+    result = cli_commands.create_tag(
+        working_dir_path=temp_repo.working_dir,
+        tag_name='v1.0',
+        commit_hash=head_hash,
+        author='Me',
+        message='Tagging corrupt commit'
+    )
+    
+    assert result == -1
+    assert 'Repository error' in capsys.readouterr().err
 
 def test_create_tag_nonexistent_hash(temp_repo: Repository, capsys: CaptureFixture[str]):
     """Tests 'create_tag' with a hash that doesn't exist."""

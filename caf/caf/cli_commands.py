@@ -345,14 +345,14 @@ def create_tag(**kwargs) -> int:
         repo.create_tag(tag_name, commit_hash, author, message)
         _print_success(f'Tag "{tag_name}" created.')
         return 0
+    except TagExistsError as e:
+        _print_error(e)
+        return -1
     except RepositoryNotFoundError:
         _print_error(f'No repository found at {repo.repo_path()}')
         return -1
     except RepositoryError as e:
         _print_error(f'Repository error: {e}')
-        return -1
-    except TagExistsError as e:
-        _print_error(e)
         return -1
     except UnknownHashError as e:
         _print_error(f'commit hash does not exist: {e}')
