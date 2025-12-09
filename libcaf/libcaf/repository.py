@@ -8,12 +8,12 @@ from datetime import datetime
 from functools import wraps
 from pathlib import Path
 from typing import Concatenate
-from libcaf.tree_interface import DBTree, TreeInterface, WorkingTree
+from libcaf.workingTree import WorkingTree
 
 from . import Blob, Commit, Tree, TreeRecord, TreeRecordType, Tag
 from .constants import (DEFAULT_BRANCH, DEFAULT_REPO_DIR, HASH_CHARSET, HASH_LENGTH, HEADS_DIR, HEAD_FILE,
                         OBJECTS_SUBDIR, REFS_DIR, TAGS_DIR)
-from .plumbing import hash_object, hash_file, load_commit, load_tree, save_commit, save_file_content, save_tree, save_tag, load_tag
+from .plumbing import hash_object, load_commit, load_tree, save_commit, save_file_content, save_tree, save_tag, load_tag
 from .ref import HashRef, Ref, RefError, SymRef, read_ref, write_ref
 from .exceptions import TagNotFound, TagExistsError, TagError, UnknownHashError, RepositoryError, RepositoryNotFoundError
 
@@ -419,12 +419,10 @@ class Repository:
             msg = f'Error loading commit {current_hash}'
             raise RepositoryError(msg) from e
         
-    def resolve_target(self, t: Ref | Path | None) -> TreeInterface:
-        if t is None:
-            t = self.head_ref()
-
+    def _resolve_target(self, t: Ref | Path | None) -> tuple[Tree, str] | tuple[WorkingTree, None]:
+        
         if isinstance(t, Path):
-            return WorkingTree(t, self)
+            return WorkingTree(t), None
         
         commit_hash = self.resolve_ref(t)
         if commit_hash is None:
@@ -436,28 +434,48 @@ class Repository:
         except Exception as e:
             raise RepositoryError(f"Failed to load commit {commit_hash}") from e
         
-        return DBTree(commit.tree_hash, self)
+        try:
+            tree = load_tree(self.objects_dir(), commit.tree_hash)
+        except Exception as e:
+            raise RepositoryError("Error loading subtree for diff") from e
+        return tree, commit_hash
     
-    def is_tree(self, record: TreeRecord) -> bool:
-        return record.type == TreeRecordType.TREE
+    def _load_tree(self, record: TreeRecord, treeType: type[Tree] | type[WorkingTree]) -> Tree | WorkingTree:
+        if treeType is Tree:
+            return load_tree(self.objects_dir(), record.hash)
+        elif treeType is WorkingTree:
+            return WorkingTree(self.working_dir / record.name)
+        else:
+            raise ValueError(f"Unsupported tree type: {treeType}")
 
     @requires_repo
-    def diff_commits(self, commit_ref1: Ref | Path | None = None, commit_ref2: Ref | Path | None = None) -> Sequence[Diff]:
-        """Generate a diff between two commits in the repository.
+    def diff(self, target1: Ref | Path | None = None, target2: Ref | Path | None = None) -> Sequence[Diff]:
+        """Compare two targets (commits, refs, or paths) and generate a diff.
 
-        :param commit_ref1: The reference to the first commit. If None, defaults to the current HEAD.
-        :param commit_ref2: The reference to the second commit. If None, defaults to the current HEAD.
-        :return: A list of Diff objects representing the differences between the two commits.
-        :raises RepositoryError: If a commit or tree cannot be loaded.
+        This method calculates the differences between two trees. The trees can be specified
+        by a commit reference (hash or branch name) or a filesystem path (for the working directory).
+
+        :param commit_ref1: The first target to compare. Can be a commit hash, branch name, or Path.
+                            If None, defaults to HEAD.
+        :param commit_ref2: The second target to compare. Can be a commit hash, branch name, or Path.
+                            If None, defaults to HEAD.
+        :return: A list of Diff objects representing the changes.
+        :raises RepositoryError: If a target cannot be resolved.
         :raises RepositoryNotFoundError: If the repository does not exist."""
+
+        if target1 is None or target2 is None:
+            raise ValueError("Diff targets cannot be None")
+
         try:
-            tree1 = self.resolve_target(commit_ref1)
-            tree2 = self.resolve_target(commit_ref2)
+            tree1, hash1 = self._resolve_target(target1)
+            tree2, hash2 = self._resolve_target(target2)
         except RefError as e:
             msg = 'Error resolving commit reference for diff'
             raise RepositoryError(msg) from e
+        except RepositoryError as e:
+            raise e
 
-        if isinstance(tree1, DBTree) and isinstance(tree2, DBTree) and tree1.tree_hash == tree2.tree_hash:
+        if hash1 == hash2:
             return []
 
         top_level_diff = Diff(TreeRecord(TreeRecordType.TREE, '', ''), None, [])
@@ -468,8 +486,12 @@ class Repository:
 
         while stack:
             current_tree1, current_tree2, parent_diff = stack.pop()
-            records1 = current_tree1.get_records() if current_tree1 else {}
-            records2 = current_tree2.get_records() if current_tree2 else {}
+            try:
+                records1 = current_tree1.records if current_tree1 else {}
+                records2 = current_tree2.records if current_tree2 else {}
+            except FileNotFoundError as e:
+                msg = 'Error retrieving tree records for diff'
+                raise RepositoryError(msg) from e
 
             for name, record1 in records1.items():
                 if name not in records2:
@@ -495,8 +517,12 @@ class Repository:
                         local_diff = RemovedDiff(record1, parent_diff, [])
                         potentially_removed[record1.hash] = local_diff
 
-                        if self.is_tree(record1):
-                            stack.append((current_tree1.get_subtree(record1), None, local_diff))
+                        if record1.type == TreeRecordType.TREE:
+                            try:
+                                stack.append((self._load_tree(record1, type(current_tree1)), None, local_diff))
+                            except Exception as e:
+                                msg = 'Error loading subtree for diff'
+                                raise RepositoryError(msg) from e
 
                     parent_diff.children.append(local_diff)
                 else:
@@ -507,11 +533,15 @@ class Repository:
                         continue
 
                     # If the record is a tree, we need to recursively compare the trees
-                    if self.is_tree(record1) and self.is_tree(record2):
+                    if record1.type == TreeRecordType.TREE and record2.type == TreeRecordType.TREE:
                         subtree_diff = ModifiedDiff(record1, parent_diff, [])
-
-                        tree1 = current_tree1.get_subtree(record1)
-                        tree2 = current_tree2.get_subtree(record2)
+                        
+                        try:
+                            tree1 = self._load_tree(record1, type(current_tree1))
+                            tree2 = self._load_tree(record2, type(current_tree2))
+                        except Exception as e:
+                            msg = 'Error loading subtree for diff'
+                            raise RepositoryError(msg) from e
 
                         stack.append((tree1, tree2, subtree_diff))
                         parent_diff.children.append(subtree_diff)
@@ -543,8 +573,12 @@ class Repository:
                         local_diff = AddedDiff(record2, parent_diff, [])
                         potentially_added[record2.hash] = local_diff
 
-                        if self.is_tree(record2):
-                            stack.append((None, current_tree2.get_subtree(record2), local_diff))
+                        if record2.type == TreeRecordType.TREE:
+                            try:
+                                stack.append((None, self._load_tree(record2, type(current_tree2)), local_diff))
+                            except Exception as e:
+                                msg = 'Error loading subtree for diff'
+                                raise RepositoryError(msg) from e
 
                     parent_diff.children.append(local_diff)
 

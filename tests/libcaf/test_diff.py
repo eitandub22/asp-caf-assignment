@@ -24,7 +24,7 @@ def test_diff_head(temp_repo: Repository) -> None:
     file_path.write_text('Same content')
 
     temp_repo.commit_working_dir('Tester', 'Initial commit')
-    diff_result = temp_repo.diff_commits()
+    diff_result = temp_repo.diff(temp_repo.head_commit(), temp_repo.working_dir)
 
     assert len(diff_result) == 0
 
@@ -34,7 +34,7 @@ def test_diff_identical_commits(temp_repo: Repository) -> None:
     file_path.write_text('Same content')
 
     commit_hash = temp_repo.commit_working_dir('Tester', 'Initial commit')
-    diff_result = temp_repo.diff_commits(commit_hash, 'HEAD')
+    diff_result = temp_repo.diff(commit_hash, 'HEAD')
 
     assert len(diff_result) == 0
 
@@ -48,7 +48,7 @@ def test_diff_added_file(temp_repo: Repository) -> None:
     file2.write_text('Content 2')
     temp_repo.commit_working_dir('Tester', 'Added file2')
 
-    diff_result = temp_repo.diff_commits(commit1_hash)
+    diff_result = temp_repo.diff(commit1_hash, temp_repo.head_commit())
     added, modified, moved_to, moved_from, removed = \
         split_diffs_by_type(diff_result)
 
@@ -69,7 +69,7 @@ def test_diff_removed_file(temp_repo: Repository) -> None:
     file1.unlink()  # Delete the file.
     temp_repo.commit_working_dir('Tester', 'File deleted')
 
-    diff_result = temp_repo.diff_commits(commit1_hash)
+    diff_result = temp_repo.diff(commit1_hash, temp_repo.head_commit())
     added, modified, moved_to, moved_from, removed = \
         split_diffs_by_type(diff_result)
 
@@ -90,7 +90,7 @@ def test_diff_modified_file(temp_repo: Repository) -> None:
     file1.write_text('New content')
     commit2 = temp_repo.commit_working_dir('Tester', 'Modified file')
 
-    diff_result = temp_repo.diff_commits(commit1, commit2)
+    diff_result = temp_repo.diff(commit1, commit2)
     added, modified, moved_to, moved_from, removed = \
         split_diffs_by_type(diff_result)
 
@@ -113,7 +113,7 @@ def test_diff_nested_directory(temp_repo: Repository) -> None:
     nested_file.write_text('Modified')
     commit2 = temp_repo.commit_working_dir('Tester', 'Modified nested file')
 
-    diff_result = temp_repo.diff_commits(commit1, commit2)
+    diff_result = temp_repo.diff(commit1, commit2)
     added, modified, moved_to, moved_from, removed = \
         split_diffs_by_type(diff_result)
 
@@ -148,7 +148,7 @@ def test_diff_nested_trees(temp_repo: Repository) -> None:
 
     commit2 = temp_repo.commit_working_dir('Tester', 'Updated nested commit')
 
-    diff_result = temp_repo.diff_commits(commit1, commit2)
+    diff_result = temp_repo.diff(commit1, commit2)
     added, modified, moved_to, moved_from, removed = \
         split_diffs_by_type(diff_result)
 
@@ -199,7 +199,7 @@ def test_diff_moved_file_added_first(temp_repo: Repository) -> None:
 
     commit2 = temp_repo.commit_working_dir('Tester', 'Updated nested commit')
 
-    diff_result = temp_repo.diff_commits(commit1, commit2)
+    diff_result = temp_repo.diff(commit1, commit2)
     added, modified, moved_to, moved_from, removed = \
         split_diffs_by_type(diff_result)
 
@@ -264,7 +264,7 @@ def test_diff_moved_file_removed_first(temp_repo: Repository) -> None:
 
     commit2 = temp_repo.commit_working_dir('Tester', 'Updated nested commit')
 
-    diff_result = temp_repo.diff_commits(commit1, commit2)
+    diff_result = temp_repo.diff(commit1, commit2)
     added, modified, moved_to, moved_from, removed = \
         split_diffs_by_type(diff_result)
 
@@ -317,7 +317,7 @@ def test_diff_workdir_clean(temp_repo: Repository) -> None:
 
     temp_repo.commit_working_dir('Tester', 'Initial commit')
     
-    diff_result = temp_repo.diff_commits(None, temp_repo.working_dir)
+    diff_result = temp_repo.diff(temp_repo.head_commit(), temp_repo.working_dir)
 
     assert len(diff_result) == 0
 
@@ -329,7 +329,7 @@ def test_diff_workdir_added_file(temp_repo: Repository) -> None:
     file2 = temp_repo.working_dir / 'file2.txt'
     file2.write_text('Content 2')
 
-    diff_result = temp_repo.diff_commits(None, temp_repo.working_dir)
+    diff_result = temp_repo.diff(temp_repo.head_commit(), temp_repo.working_dir)
     added, modified, moved_to, moved_from, removed = \
         split_diffs_by_type(diff_result)
 
@@ -349,7 +349,7 @@ def test_diff_workdir_removed_file(temp_repo: Repository) -> None:
     # Delete the file from working directory
     file1.unlink()
 
-    diff_result = temp_repo.diff_commits(None, temp_repo.working_dir)
+    diff_result = temp_repo.diff(temp_repo.head_commit(), temp_repo.working_dir)
     added, modified, moved_to, moved_from, removed = \
         split_diffs_by_type(diff_result)
 
@@ -369,7 +369,7 @@ def test_diff_workdir_modified_file(temp_repo: Repository) -> None:
     # Modify the file in working directory
     file1.write_text('New content')
 
-    diff_result = temp_repo.diff_commits(None, temp_repo.working_dir)
+    diff_result = temp_repo.diff(temp_repo.head_commit(), temp_repo.working_dir)
     added, modified, moved_to, moved_from, removed = \
         split_diffs_by_type(diff_result)
 
@@ -391,7 +391,7 @@ def test_diff_workdir_nested_directory(temp_repo: Repository) -> None:
     # Modify file inside subdir
     nested_file.write_text('Modified')
 
-    diff_result = temp_repo.diff_commits(None, temp_repo.working_dir)
+    diff_result = temp_repo.diff(temp_repo.head_commit(), temp_repo.working_dir)
     added, modified, moved_to, moved_from, removed = \
         split_diffs_by_type(diff_result)
 
@@ -427,7 +427,7 @@ def test_diff_workdir_nested_trees_complex(temp_repo: Repository) -> None:
     file_c = dir2 / 'file_c.txt'
     file_c.write_text('C1')
 
-    diff_result = temp_repo.diff_commits(None, temp_repo.working_dir)
+    diff_result = temp_repo.diff(temp_repo.head_commit(), temp_repo.working_dir)
     added, modified, moved_to, moved_from, removed = \
         split_diffs_by_type(diff_result)
 
@@ -477,7 +477,7 @@ def test_diff_workdir_moved_file(temp_repo: Repository) -> None:
 
     file_a.rename(dir2 / 'file_a.txt')
 
-    diff_result = temp_repo.diff_commits(None, temp_repo.working_dir)
+    diff_result = temp_repo.diff(temp_repo.head_commit(), temp_repo.working_dir)
     added, modified, moved_to, moved_from, removed = \
         split_diffs_by_type(diff_result)
     
@@ -527,7 +527,7 @@ def test_diff_workdir_type_change(temp_repo: Repository) -> None:
     dir_path = temp_repo.working_dir / 'a_dir' 
     dir_path.write_text('I am a file now')
 
-    diff_result = temp_repo.diff_commits(None, temp_repo.working_dir)
+    diff_result = temp_repo.diff(temp_repo.head_commit(), temp_repo.working_dir)
     added, modified, moved_to, moved_from, removed = \
         split_diffs_by_type(diff_result)
 
@@ -553,7 +553,7 @@ def test_diff_workdir_added_directory(temp_repo: Repository) -> None:
     new_dir.mkdir()
     (new_dir / 'nested_file.txt').write_text('content')
 
-    diffs = temp_repo.diff_commits(None, temp_repo.working_dir)
+    diffs = temp_repo.diff(temp_repo.head_commit(), temp_repo.working_dir)
 
     assert len(diffs) == 1
     assert isinstance(diffs[0], AddedDiff)
@@ -571,7 +571,7 @@ def test_diff_workdir_moved_file_detection(temp_repo: Repository) -> None:
 
     file_path.rename(temp_repo.working_dir / 'new_name.txt')
 
-    diffs = temp_repo.diff_commits(None, temp_repo.working_dir)
+    diffs = temp_repo.diff(temp_repo.head_commit(), temp_repo.working_dir)
 
     assert len(diffs) == 2
     
@@ -592,7 +592,7 @@ def test_diff_removed_directory(temp_repo: Repository) -> None:
     
     commit2 = temp_repo.commit_working_dir('Tester', 'Deleted directory')
 
-    diff_result = temp_repo.diff_commits(commit1, commit2)
+    diff_result = temp_repo.diff(commit1, commit2)
     
     assert len(diff_result) == 1
     folder_diff = diff_result[0]
@@ -605,3 +605,37 @@ def test_diff_removed_directory(temp_repo: Repository) -> None:
     
     assert isinstance(file_diff, RemovedDiff)
     assert file_diff.record.name == 'file.txt'
+
+def test_directory_with_files_removed(temp_repo: Repository) -> None:
+    dir_path = temp_repo.working_dir / 'my_folder'
+    dir_path.mkdir()
+    (dir_path / 'file1.txt').write_text('content1')
+    (dir_path / 'file2.txt').write_text('content2')
+    
+    commit1 = temp_repo.commit_working_dir('Tester', 'Initial commit')
+
+    (dir_path / 'file1.txt').unlink()
+    (dir_path / 'file2.txt').unlink()
+
+    shutil.rmtree(dir_path)
+
+    diff_result = temp_repo.diff(commit1, temp_repo.working_dir)
+    
+    added, modified, moved_to, moved_from, removed = \
+        split_diffs_by_type(diff_result)
+    for child in removed:
+        print(f'Removed: {child.record.name}')
+    assert len(diff_result) == 1
+    folder_diff = diff_result[0]
+    
+    assert isinstance(folder_diff, RemovedDiff)
+    assert folder_diff.record.name == 'my_folder'
+    
+    assert len(folder_diff.children) == 2
+    
+    file_names = [child.record.name for child in folder_diff.children]
+    assert 'file1.txt' in file_names
+    assert 'file2.txt' in file_names
+    
+    for child in folder_diff.children:
+        assert isinstance(child, RemovedDiff)
