@@ -1,8 +1,6 @@
 from collections.abc import Sequence
 import shutil
-
 from libcaf.repository import (AddedDiff, Diff, ModifiedDiff, MovedFromDiff, MovedToDiff, RemovedDiff, Repository)
-
 
 def split_diffs_by_type(diffs: Sequence[Diff]) -> \
         tuple[list[AddedDiff],
@@ -639,3 +637,93 @@ def test_directory_with_files_removed(temp_repo: Repository) -> None:
     
     for child in folder_diff.children:
         assert isinstance(child, RemovedDiff)
+
+def test_diff_two_directories_added(temp_repo: Repository) -> None:
+    temp_repo.commit_working_dir('Tester', 'Initial commit')
+
+    dir1 = temp_repo.working_dir / 'dir1'
+    dir1.mkdir()
+    (dir1 / 'subdir1').mkdir()
+    (dir1 / 'subdir2').mkdir()
+
+    dir2 = temp_repo.working_dir / 'dir2'
+    dir2.mkdir()
+    (dir2 / 'file3.txt').write_text('content3')
+
+    diff_result = temp_repo.diff(dir1, dir2)
+    added, modified, moved_to, moved_from, removed = \
+        split_diffs_by_type(diff_result)
+    
+    assert len(added) == 1
+    assert added[0].record.name == 'file3.txt'
+
+    assert len(modified) == 0
+    assert len(moved_to) == 0
+    assert len(moved_from) == 0
+
+    assert len(removed) == 2
+    removed_names = [d.record.name for d in removed]
+    assert 'subdir1' in removed_names
+    assert 'subdir2' in removed_names
+
+def test_directory_move_detection(temp_repo: Repository) -> None:
+    src_dir = temp_repo.working_dir / 'src'
+    src_dir.mkdir()
+    (src_dir / 'data.txt').write_text('important data')
+    (src_dir / 'config.json').write_text('{"key": "value"}')
+    
+    temp_repo.commit_working_dir('Tester', 'Initial commit')
+
+    shutil.move(src_dir, temp_repo.working_dir / 'dst')
+
+    diffs = temp_repo.diff(temp_repo.head_commit(), temp_repo.working_dir)
+    added, modified, moved_to, moved_from, removed = split_diffs_by_type(diffs)
+    
+    assert len(added) == 0
+    assert len(removed) == 0
+    
+    names = [d.record.name for d in diffs]
+    assert 'src' in names
+    assert 'dst' in names
+    
+    src_diff = next(d for d in diffs if d.record.name == 'src')
+    dst_diff = next(d for d in diffs if d.record.name == 'dst')
+    
+    assert isinstance(src_diff, MovedToDiff)
+    assert isinstance(dst_diff, MovedFromDiff)
+    
+    assert src_diff.moved_to == dst_diff
+
+def test_directory_content_modification_propagates_hash(temp_repo: Repository) -> None:
+    docs_dir = temp_repo.working_dir / 'docs'
+    docs_dir.mkdir()
+    (docs_dir / 'readme.txt').write_text('v1')
+    
+    commit1 = temp_repo.commit_working_dir('Tester', 'v1')
+    
+    (docs_dir / 'readme.txt').write_text('v2')
+    
+    diffs = temp_repo.diff(commit1, temp_repo.working_dir)
+    added, modified, moved_to, moved_from, removed = split_diffs_by_type(diffs)
+
+    assert len(modified) == 1
+    assert modified[0].record.name == 'docs'
+    
+    assert len(modified[0].children) == 1
+    assert modified[0].children[0].record.name == 'readme.txt'
+    assert isinstance(modified[0].children[0], ModifiedDiff)
+
+def test_fs_vs_fs_different_content(temp_repo: Repository) -> None:
+    dirA = temp_repo.working_dir / 'dirA'
+    dirA.mkdir()
+    (dirA / 'file.txt').write_text('AAA')
+
+    dirB = temp_repo.working_dir / 'dirB'
+    dirB.mkdir()
+    (dirB / 'file.txt').write_text('BBB')
+
+    diffs = temp_repo.diff(dirA, dirB)
+
+    assert len(diffs) == 1
+    assert isinstance(diffs[0], ModifiedDiff)
+    assert diffs[0].record.name == 'file.txt'
