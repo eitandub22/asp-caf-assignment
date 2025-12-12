@@ -429,7 +429,7 @@ class Repository:
               loads the corresponding commit, and returns its tree hash.
         :param t: The target to resolve, which can be a `Path`, a `Ref`, or None.
         :param tree_hashes: A dictionary to populate with tree hashes and their corresponding Tree objects.
-        :return: The hash of the resolved Tree object.
+        :return: The hash of the resolved Tree object or None if already cached.
         :raises RepositoryError: If the path is not a directory or if a commit cannot be loaded.
         :raises RefError: If the reference cannot be resolved.
         """
@@ -451,6 +451,8 @@ class Repository:
         
         try:
             commit = load_commit(self.objects_dir(), commit_hash)
+            if commit.tree_hash in tree_hashes:
+                return None
             tree_hashes[commit.tree_hash] = load_tree(self.objects_dir(), commit.tree_hash)
         except Exception as e:
             raise RepositoryError(f"Failed to load commit {commit_hash}") from e
@@ -483,17 +485,17 @@ class Repository:
             msg = 'The second diff target must be given'
             raise ValueError(msg)
         
-        tree_hashes1: dict[str, Tree] = {}
-        tree_hashes2: dict[str, Tree] = {}
+        tree_hashes: dict[str, Tree] = {}
 
         try:
-            tree1 = self._resolve_target(target1, tree_hashes1)
-            tree2 = self._resolve_target(target2, tree_hashes2)
+            tree1 = self._resolve_target(target1, tree_hashes)
+            tree2 = self._resolve_target(target2, tree_hashes)
         except RefError as e:
             msg = 'Error resolving commit reference for diff'
             raise RepositoryError(msg) from e
 
-        if tree_hashes1.keys() == tree_hashes2.keys():
+        # _resolve_target returns None when tree2 hash is already in tree_hashes
+        if tree2 is None:
             return []
 
         top_level_diff = Diff(TreeRecord(TreeRecordType.TREE, '', ''), None, [])
@@ -533,7 +535,7 @@ class Repository:
 
                         if record1.type == TreeRecordType.TREE:
                             try:
-                                stack.append((self._load_tree(record1.hash, tree_hashes1), None, local_diff))
+                                stack.append((self._load_tree(record1.hash, tree_hashes), None, local_diff))
                             except Exception as e:
                                 msg = 'Error loading subtree for diff'
                                 raise RepositoryError(msg) from e
@@ -551,8 +553,8 @@ class Repository:
                         subtree_diff = ModifiedDiff(record1, parent_diff, [])
 
                         try:
-                            tree1 = self._load_tree(record1.hash, tree_hashes1)
-                            tree2 = self._load_tree(record2.hash, tree_hashes2)
+                            tree1 = self._load_tree(record1.hash, tree_hashes)
+                            tree2 = self._load_tree(record2.hash, tree_hashes)
                         except Exception as e:
                             msg = 'Error loading subtree for diff'
                             raise RepositoryError(msg) from e
@@ -589,7 +591,7 @@ class Repository:
 
                         if record2.type == TreeRecordType.TREE:
                             try:
-                                stack.append((None, self._load_tree(record2.hash, tree_hashes2), local_diff))
+                                stack.append((None, self._load_tree(record2.hash, tree_hashes), local_diff))
                             except Exception as e:
                                 msg = 'Error loading subtree for diff'
                                 raise RepositoryError(msg) from e
