@@ -435,7 +435,9 @@ class Repository:
         """
         if isinstance(t, Path):
             try:
-                root = build_fsTree(t, tree_hashes, self.repo_dir.name)
+                root, root_hash = build_fsTree(t, tree_hashes, self.repo_dir.name)
+                if root_hash in tree_hashes:
+                    return None
             except NotADirectoryError as e:
                 msg = f'Path {t} is not a directory'
                 raise RepositoryError(msg) from e
