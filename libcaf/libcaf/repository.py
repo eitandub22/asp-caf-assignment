@@ -8,13 +8,13 @@ from datetime import datetime
 from functools import wraps
 from pathlib import Path
 from typing import Concatenate
-
 from . import Blob, Commit, Tree, TreeRecord, TreeRecordType, Tag
 from .constants import (DEFAULT_BRANCH, DEFAULT_REPO_DIR, HASH_CHARSET, HASH_LENGTH, HEADS_DIR, HEAD_FILE,
                         OBJECTS_SUBDIR, REFS_DIR, TAGS_DIR)
-from .plumbing import hash_object, load_commit, load_tree, save_commit, save_file_content, save_tree, save_tag, load_tag
+from .plumbing import hash_object, hash_file, load_commit, load_tree, save_commit, save_file_content, save_tree, save_tag, load_tag
 from .ref import HashRef, Ref, RefError, SymRef, read_ref, write_ref
 from .exceptions import TagNotFound, TagExistsError, TagError, UnknownHashError, RepositoryError, RepositoryNotFoundError
+from .internal import build_fsTree, MissingHashError
 
 @dataclass
 class Diff:
@@ -417,47 +417,88 @@ class Repository:
         except Exception as e:
             msg = f'Error loading commit {current_hash}'
             raise RepositoryError(msg) from e
-
+        
+        
+    def _resolve_target(self, t: Ref | Path | None, tree_hashes: dict[str, Tree]) -> Tree:
+        """
+        Resolves a target to a tree hash.
+        The target `t` can be either:
+            - A `Path` object: The method builds a Tree from the filesystem at the given path,
+              populates `tree_hashes` with the resulting trees, and returns the root tree hash.
+            - A `Ref` object or None: The method resolves the reference to a commit hash,
+              loads the corresponding commit, and returns its tree hash.
+        :param t: The target to resolve, which can be a `Path`, a `Ref`, or None.
+        :param tree_hashes: A dictionary to populate with tree hashes and their corresponding Tree objects.
+        :return: The hash of the resolved Tree object or None if already cached.
+        :raises RepositoryError: If the path is not a directory or if a commit cannot be loaded.
+        :raises RefError: If the reference cannot be resolved.
+        """
+        if isinstance(t, Path):
+            try:
+                root, root_hash = build_fsTree(t, tree_hashes, self.repo_dir.name)
+                if root_hash in tree_hashes:
+                    return None
+            except NotADirectoryError as e:
+                msg = f'Path {t} is not a directory'
+                raise RepositoryError(msg) from e
+            except MissingHashError as e:
+                msg = f'Error building tree from path {t}'
+                raise RepositoryError(msg) from e
+            return root
+        
+        commit_hash = self.resolve_ref(t)
+        if commit_hash is None:
+            msg = f'Cannot resolve reference {t}'
+            raise RefError(msg)
+        
+        try:
+            commit = load_commit(self.objects_dir(), commit_hash)
+            if commit.tree_hash in tree_hashes:
+                return None
+            tree_hashes[commit.tree_hash] = load_tree(self.objects_dir(), commit.tree_hash)
+        except Exception as e:
+            raise RepositoryError(f"Failed to load commit {commit_hash}") from e
+        return tree_hashes[commit.tree_hash]
+    
+    def _load_tree(self, record_hash: str, tree_hashes: dict[str, Tree]) -> Tree:
+        if record_hash in tree_hashes:
+            return tree_hashes[record_hash]
+        # Cache miss - load from disk
+        tree_hashes[record_hash] = load_tree(self.objects_dir(), record_hash)
+        return tree_hashes[record_hash]
+    
     @requires_repo
-    def diff_commits(self, commit_ref1: Ref | None = None, commit_ref2: Ref | None = None) -> Sequence[Diff]:
-        """Generate a diff between two commits in the repository.
+    def diff(self, target1: Ref | Path | None = None, target2: Ref | Path | None = None) -> Sequence[Diff]:
+        """Compare two targets (commits, refs, or paths) and generate a diff.
 
-        :param commit_ref1: The reference to the first commit. If None, defaults to the current HEAD.
-        :param commit_ref2: The reference to the second commit. If None, defaults to the current HEAD.
-        :return: A list of Diff objects representing the differences between the two commits.
-        :raises RepositoryError: If a commit or tree cannot be loaded.
+        This method calculates the differences between two trees. The trees can be specified
+        by a commit reference (hash or branch name) or a filesystem path (to any directory).
+
+        :param target1: The first target to compare. Can be a commit hash, branch name, or Path.
+        :param target2: The second target to compare. Can be a commit hash, branch name, or Path.
+        :return: A list of Diff objects representing the changes.
+        :raises RepositoryError: If a target cannot be resolved.
         :raises RepositoryNotFoundError: If the repository does not exist."""
-        if commit_ref1 is None:
-            commit_ref1 = self.head_ref()
-        if commit_ref2 is None:
-            commit_ref2 = self.head_ref()
+
+        if target1 is None:
+            msg = 'The first diff target must be given'
+            raise ValueError(msg)
+        if target2 is None:
+            msg = 'The second diff target must be given'
+            raise ValueError(msg)
+        
+        tree_hashes: dict[str, Tree] = {}
 
         try:
-            commit_hash1 = self.resolve_ref(commit_ref1)
-            commit_hash2 = self.resolve_ref(commit_ref2)
-
-            if commit_hash1 is None:
-                msg = f'Cannot resolve reference {commit_ref1}'
-                raise RefError(msg)
-            if commit_hash2 is None:
-                msg = f'Cannot resolve reference {commit_ref2}'
-                raise RefError(msg)
-
-            commit1 = load_commit(self.objects_dir(), commit_hash1)
-            commit2 = load_commit(self.objects_dir(), commit_hash2)
-        except Exception as e:
-            msg = 'Error loading commit'
+            tree1 = self._resolve_target(target1, tree_hashes)
+            tree2 = self._resolve_target(target2, tree_hashes)
+        except RefError as e:
+            msg = 'Error resolving commit reference for diff'
             raise RepositoryError(msg) from e
 
-        if commit1.tree_hash == commit2.tree_hash:
+        # _resolve_target returns None when tree2 hash is already in tree_hashes
+        if tree2 is None:
             return []
-
-        try:
-            tree1 = load_tree(self.objects_dir(), commit1.tree_hash)
-            tree2 = load_tree(self.objects_dir(), commit2.tree_hash)
-        except Exception as e:
-            msg = 'Error loading tree'
-            raise RepositoryError(msg) from e
 
         top_level_diff = Diff(TreeRecord(TreeRecordType.TREE, '', ''), None, [])
         stack = [(tree1, tree2, top_level_diff)]
@@ -494,6 +535,13 @@ class Repository:
                         local_diff = RemovedDiff(record1, parent_diff, [])
                         potentially_removed[record1.hash] = local_diff
 
+                        if record1.type == TreeRecordType.TREE:
+                            try:
+                                stack.append((self._load_tree(record1.hash, tree_hashes), None, local_diff))
+                            except Exception as e:
+                                msg = 'Error loading subtree for diff'
+                                raise RepositoryError(msg) from e
+
                     parent_diff.children.append(local_diff)
                 else:
                     record2 = records2[name]
@@ -507,8 +555,8 @@ class Repository:
                         subtree_diff = ModifiedDiff(record1, parent_diff, [])
 
                         try:
-                            tree1 = load_tree(self.objects_dir(), record1.hash)
-                            tree2 = load_tree(self.objects_dir(), record2.hash)
+                            tree1 = self._load_tree(record1.hash, tree_hashes)
+                            tree2 = self._load_tree(record2.hash, tree_hashes)
                         except Exception as e:
                             msg = 'Error loading subtree for diff'
                             raise RepositoryError(msg) from e
@@ -542,6 +590,13 @@ class Repository:
                     else:
                         local_diff = AddedDiff(record2, parent_diff, [])
                         potentially_added[record2.hash] = local_diff
+
+                        if record2.type == TreeRecordType.TREE:
+                            try:
+                                stack.append((None, self._load_tree(record2.hash, tree_hashes), local_diff))
+                            except Exception as e:
+                                msg = 'Error loading subtree for diff'
+                                raise RepositoryError(msg) from e
 
                     parent_diff.children.append(local_diff)
 
