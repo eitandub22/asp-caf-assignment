@@ -1,11 +1,12 @@
 from pathlib import Path
+from typing import Tuple
 from .plumbing import hash_file, hash_object
 from . import Tree, TreeRecord, TreeRecordType
 
 class MissingHashError(Exception):
     """Custom exception raised when a required hash is missing."""
 
-def build_fsTree(path: Path, tree_hashes: dict[str, Tree], repo_dir_name: str) -> Tree:
+def build_fsTree(path: Path, tree_hashes: dict[str, Tree], repo_dir_name: str) -> Tuple[Tree, str]:
         """
         Builds a Tree structure from the filesystem in memory.
         Populates 'tree_hashes' with hash -> Tree mappings.
