@@ -155,6 +155,14 @@ def cli() -> None:
             'help': '📊 Display differences between two commits',
         },
 
+        'status': {
+            'func': cli_commands.status,
+            'args': {
+                **_repo_args,
+            },
+            'help': '📈 Show the status of the working directory',
+        },
+
         'tags': {
             'func': cli_commands.tags,
             'args': {

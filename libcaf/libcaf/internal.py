@@ -63,4 +63,4 @@ def build_fsTree(path: Path, tree_hashes: dict[str, Tree], repo_dir_name: str) -
             
             dir_hashes[current_path] = t_hash
 
-        return tree_hashes[dir_hashes[path]], dir_hashes[path]
+        return tree_hashes[dir_hashes[path]]

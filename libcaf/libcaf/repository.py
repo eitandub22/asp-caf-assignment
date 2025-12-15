@@ -429,7 +429,7 @@ class Repository:
               loads the corresponding commit, and returns its tree hash.
         :param t: The target to resolve, which can be a `Path`, a `Ref`, or None.
         :param tree_hashes: A dictionary to populate with tree hashes and their corresponding Tree objects.
-        :return: The hash of the resolved Tree object or None if already cached.
+        :return: The resolved Tree object.
         :raises RepositoryError: If the path is not a directory or if a commit cannot be loaded.
         :raises RefError: If the reference cannot be resolved.
         """
@@ -692,7 +692,10 @@ class Repository:
             write_ref(tag_path, tag_object_hash)
         except RefError as e:
             raise TagError(f"Failed to write tag to {tag_path}: {e}") from e
-
+        
+    @requires_repo
+    def status(self) -> Sequence[Diff]:
+        return self.diff(self.working_dir, self.head_commit())
 
 def branch_ref(branch: str) -> SymRef:
     """Create a symbolic reference for a branch name.

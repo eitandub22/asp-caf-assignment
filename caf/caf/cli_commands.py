@@ -357,3 +357,20 @@ def create_tag(**kwargs) -> int:
     except UnknownHashError as e:
         _print_error(f'commit hash does not exist: {e}')
         return -1
+
+def status(**kwargs) -> int:
+    repo = _repo_from_cli_kwargs(kwargs)
+
+    try:
+        status = repo.status()
+
+        if not status:
+            _print_success('Working directory is clean.')
+            return 0
+
+        _print_diffs([(status, 0)])
+
+        return 0
+    except RepositoryNotFoundError:
+        _print_error(f'No repository found at {repo.repo_path()}')
+        return -1
