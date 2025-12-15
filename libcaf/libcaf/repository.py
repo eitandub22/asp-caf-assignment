@@ -690,7 +690,7 @@ class Repository:
         
     @requires_repo
     def status(self) -> Sequence[Diff]:
-        return self.diff(self.working_dir, self.head_commit())
+        return self.diff(self.head_commit(), self.working_dir)
 
 def branch_ref(branch: str) -> SymRef:
     """Create a symbolic reference for a branch name.
