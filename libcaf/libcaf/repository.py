@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
-from typing import Concatenate
+from typing import Concatenate, Tuple
 from . import Blob, Commit, Tree, TreeRecord, TreeRecordType, Tag
 from .constants import (DEFAULT_BRANCH, DEFAULT_REPO_DIR, HASH_CHARSET, HASH_LENGTH, HEADS_DIR, HEAD_FILE,
                         OBJECTS_SUBDIR, REFS_DIR, TAGS_DIR)
@@ -419,7 +419,7 @@ class Repository:
             raise RepositoryError(msg) from e
         
         
-    def _resolve_target(self, t: Ref | Path | None, tree_hashes: dict[str, Tree]) -> Tree:
+    def _resolve_target(self, t: Ref | Path | None, tree_hashes: dict[str, Tree]) -> Tuple[Tree, str]:
         """
         Resolves a target to a tree hash.
         The target `t` can be either:
@@ -429,22 +429,20 @@ class Repository:
               loads the corresponding commit, and returns its tree hash.
         :param t: The target to resolve, which can be a `Path`, a `Ref`, or None.
         :param tree_hashes: A dictionary to populate with tree hashes and their corresponding Tree objects.
-        :return: The resolved Tree object.
+        :return: The resolved Tree object and its hash.
         :raises RepositoryError: If the path is not a directory or if a commit cannot be loaded.
         :raises RefError: If the reference cannot be resolved.
         """
         if isinstance(t, Path):
             try:
                 root, root_hash = build_fsTree(t, tree_hashes, self.repo_dir.name)
-                if root_hash in tree_hashes:
-                    return None
             except NotADirectoryError as e:
                 msg = f'Path {t} is not a directory'
                 raise RepositoryError(msg) from e
             except MissingHashError as e:
                 msg = f'Error building tree from path {t}'
                 raise RepositoryError(msg) from e
-            return root
+            return root, root_hash
         
         commit_hash = self.resolve_ref(t)
         if commit_hash is None:
@@ -453,12 +451,10 @@ class Repository:
         
         try:
             commit = load_commit(self.objects_dir(), commit_hash)
-            if commit.tree_hash in tree_hashes:
-                return None
             tree_hashes[commit.tree_hash] = load_tree(self.objects_dir(), commit.tree_hash)
         except Exception as e:
             raise RepositoryError(f"Failed to load commit {commit_hash}") from e
-        return tree_hashes[commit.tree_hash]
+        return tree_hashes[commit.tree_hash], commit.tree_hash
     
     def _load_tree(self, record_hash: str, tree_hashes: dict[str, Tree]) -> Tree:
         if record_hash in tree_hashes:
@@ -490,14 +486,13 @@ class Repository:
         tree_hashes: dict[str, Tree] = {}
 
         try:
-            tree1 = self._resolve_target(target1, tree_hashes)
-            tree2 = self._resolve_target(target2, tree_hashes)
+            tree1, tree1_hash = self._resolve_target(target1, tree_hashes)
+            tree2, tree2_hash = self._resolve_target(target2, tree_hashes)
         except RefError as e:
             msg = 'Error resolving commit reference for diff'
             raise RepositoryError(msg) from e
 
-        # _resolve_target returns None when tree2 hash is already in tree_hashes
-        if tree2 is None:
+        if tree1_hash == tree2_hash:
             return []
 
         top_level_diff = Diff(TreeRecord(TreeRecordType.TREE, '', ''), None, [])
