@@ -10,12 +10,12 @@ def build_fsTree(path: Path, tree_hashes: dict[str, Tree], repo_dir_name: str) -
         """
         Builds a Tree structure from the filesystem in memory.
         Populates 'tree_hashes' with hash -> Tree mappings.
-        Returns the hash of the root tree.
+    Returns the root Tree and its hash.
 
         :param path: The directory path to build the tree from.
         :param tree_hashes: A dictionary to populate with tree hashes and their corresponding Tree objects.
         :param repo_dir_name: The name of the repository directory to ignore.
-        :return: The root Tree object.
+        :return: A tuple of (root_tree, root_tree_hash).
         """
         if not path.is_dir():
             raise NotADirectoryError(f"{path} is not a directory")

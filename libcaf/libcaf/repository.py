@@ -687,7 +687,10 @@ class Repository:
             write_ref(tag_path, tag_object_hash)
         except RefError as e:
             raise TagError(f"Failed to write tag to {tag_path}: {e}") from e
-
+        
+    @requires_repo
+    def status(self) -> Sequence[Diff]:
+        return self.diff(self.head_commit(), self.working_dir)
 
 def branch_ref(branch: str) -> SymRef:
     """Create a symbolic reference for a branch name.
