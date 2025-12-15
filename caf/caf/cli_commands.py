@@ -232,6 +232,8 @@ def diff(**kwargs) -> int:
         if not diffs:
             _print_success('No changes detected between commits.')
             return 0
+        
+        _print_success('Diff:\n')
 
         _print_diffs([(diffs, 0)])
 
@@ -252,7 +254,6 @@ def _repo_from_cli_kwargs(kwargs: dict[str, str]) -> Repository:
 
 
 def _print_diffs(diff_stack: MutableSequence[tuple[Sequence[Diff], int]]) -> None:
-    _print_success('Diff:\n')
 
     while diff_stack:
         current_diffs, indent = diff_stack.pop()
@@ -364,9 +365,13 @@ def status(**kwargs) -> int:
     try:
         status = repo.status()
 
+        _print_success('On branch: ' + (str(repo.head_ref().branch_name()) if isinstance(repo.head_ref(), SymRef) else 'DETACHED HEAD'))
+
         if not status:
-            _print_success('Working directory is clean.')
+            _print_success('nothing to commit, working tree clean.')
             return 0
+        
+        _print_success('Changes not yet committed:\n')
 
         _print_diffs([(status, 0)])
 
