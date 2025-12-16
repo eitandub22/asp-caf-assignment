@@ -11,7 +11,7 @@ from typing import Concatenate, Tuple
 from . import Blob, Commit, Tree, TreeRecord, TreeRecordType, Tag
 from .constants import (DEFAULT_BRANCH, DEFAULT_REPO_DIR, HASH_CHARSET, HASH_LENGTH, HEADS_DIR, HEAD_FILE,
                         OBJECTS_SUBDIR, REFS_DIR, TAGS_DIR)
-from .plumbing import hash_object, hash_file, load_commit, load_tree, save_commit, save_file_content, save_tree, save_tag, load_tag
+from .plumbing import hash_object, load_commit, load_tree, open_content_for_reading, save_commit, save_file_content, save_tree, save_tag, load_tag
 from .ref import HashRef, Ref, RefError, SymRef, read_ref, write_ref
 from .exceptions import TagNotFound, TagExistsError, TagError, UnknownHashError, RepositoryError, RepositoryNotFoundError
 from .internal import build_fsTree, MissingHashError
@@ -211,8 +211,20 @@ class Repository:
                 if ref.upper() == 'HEAD':
                     return self.resolve_ref(self.head_ref())
 
-                ref = read_ref(self.refs_dir() / ref)
-                return self.resolve_ref(ref)
+                resolved = read_ref(self.refs_dir() / ref)
+                if (
+                    resolved
+                    and isinstance(resolved, HashRef)
+                    and str(ref).startswith(f'{TAGS_DIR}/')
+                ):
+                    try:
+                        tag_obj = load_tag(self.objects_dir(), resolved)
+                    except Exception as e:
+                        msg = f'Error loading tag object {resolved}'
+                        raise RepositoryError(msg) from e
+                    return HashRef(tag_obj.commit_hash)
+
+                return self.resolve_ref(resolved)
             case str():
                 # Try to figure out what kind of ref it is by looking at the list of refs
                 # in the refs directory
@@ -691,6 +703,229 @@ class Repository:
     @requires_repo
     def status(self) -> Sequence[Diff]:
         return self.diff(self.head_commit(), self.working_dir)
+    
+    def _resolve_checkout_target(self, target: str) -> Ref | None:
+        """ Resolve a checkout target to a Ref.
+
+            The resolution is done by scanning the refs directory so we can distinguish between
+            branches and tags by location.
+            If there is a collision between a branch and a tag name, the branch takes precedence similair to Git.
+
+            :param target: The checkout target provided by the user.
+            :return: The resolved Ref object or None if the target does not exist.
+        """
+
+        if not isinstance(target, str):
+            msg = f'Invalid checkout target type: {type(target)}'
+            raise RefError(msg)
+
+        if len(target) == HASH_LENGTH and all(c in HASH_CHARSET for c in target):
+            return HashRef(target)
+
+        explicit_path = self.refs_dir() / target
+        if explicit_path.exists() and explicit_path.is_file():
+            return SymRef(target)
+
+        branch_path = self.heads_dir() / target
+        if branch_path.exists():
+            return branch_ref(target)
+
+        tag_path = self.tags_dir() / target
+        if tag_path.exists():
+            return tag_ref(target)
+
+        return None
+
+    def _apply_diffs(self, diffs: Sequence[Diff], target_root: Tree, tree_cache: dict[str, Tree]) -> None:
+        """ 
+            Apply a sequence of diffs to the working directory.
+
+            :param diffs: The sequence of Diff objects to apply.
+            :raises RepositoryError: If applying any of the diffs fails.
+        """
+        def relpath_for(node: Diff) -> Path:
+            parts: list[str] = []
+            current: Diff | None = node
+            while current is not None and current.parent is not None:
+                if current.record.name:
+                    parts.append(current.record.name)
+                current = current.parent
+            return Path(*reversed(parts))
+
+        def read_object_bytes(hash_value: str) -> bytes:
+            with open_content_for_reading(self.objects_dir(), hash_value) as f:
+                return f.read()
+
+        def record_at_path(root: Tree, rel_path: Path, tree_cache: dict[str, Tree]) -> TreeRecord:
+            current_tree = root
+            parts = list(rel_path.parts)
+            if not parts:
+                msg = 'Cannot resolve record at empty path'
+                raise RepositoryError(msg)
+
+            for part in parts[:-1]:
+                record = current_tree.records.get(part)
+                if record is None or record.type != TreeRecordType.TREE:
+                    msg = f'Path does not resolve to a directory: {rel_path}'
+                    raise RepositoryError(msg)
+                current_tree = self._load_tree(record.hash, tree_cache)
+
+            leaf = current_tree.records.get(parts[-1])
+            if leaf is None:
+                msg = f'Record not found in target tree: {rel_path}'
+                raise RepositoryError(msg)
+            return leaf
+
+        # Flatten diff tree so ordering can be applied globally.
+        all_nodes: list[Diff] = []
+        stack = list(diffs)
+        while stack:
+            node = stack.pop()
+            all_nodes.append(node)
+            if node.children:
+                stack.extend(node.children)
+
+        added: list[AddedDiff] = []
+        removed: list[RemovedDiff] = []
+        modified: list[ModifiedDiff] = []
+        moved_from: list[MovedFromDiff] = []
+
+        for node in all_nodes:
+            if isinstance(node, AddedDiff):
+                added.append(node)
+            elif isinstance(node, RemovedDiff):
+                removed.append(node)
+            elif isinstance(node, ModifiedDiff):
+                modified.append(node)
+            elif isinstance(node, MovedFromDiff):
+                moved_from.append(node)
+
+        cwd = self.working_dir
+
+        if target_root is None:
+            msg = 'Internal error: checkout target tree not set'
+            raise RepositoryError(msg)
+
+        # Process moves first. Process only MovedFromDiff to avoid double-applying.
+        for node in sorted(moved_from, key=lambda d: len(relpath_for(d).parts)):
+            if node.moved_from is None:
+                continue
+            old_rel = relpath_for(node.moved_from)
+            new_rel = relpath_for(node)
+            old_path = cwd / old_rel
+            new_path = cwd / new_rel
+
+            if not old_path.exists():
+                msg = f'Cannot move missing path: {old_rel}'
+                raise RepositoryError(msg)
+
+            new_path.parent.mkdir(parents=True, exist_ok=True)
+
+            try:
+                shutil.move(str(old_path), str(new_path))
+            except Exception as e:
+                msg = f'Failed to move {old_rel} to {new_rel}'
+                raise RepositoryError(msg) from e
+            
+        # Now process removals.
+        # We remove from the deepest paths first to avoid issues with non-empty directories.
+        for node in sorted(removed, key=lambda d: len(relpath_for(d).parts), reverse=True):
+            rel = relpath_for(node)
+            target_path = cwd / rel
+            if not target_path.exists():
+                continue
+
+            try:
+                if target_path.is_dir():
+                    shutil.rmtree(target_path)
+                else:
+                    target_path.unlink()
+            except Exception as e:
+                msg = f'Failed to remove {rel}'
+                raise RepositoryError(msg) from e
+
+        # We move on to additions.
+        # Directories must be created before files to ensure the path exists.
+        added_dirs = [d for d in added if d.record.type == TreeRecordType.TREE]
+        added_blobs = [d for d in added if d.record.type == TreeRecordType.BLOB]
+
+        for node in sorted(added_dirs, key=lambda d: len(relpath_for(d).parts)):
+            rel = relpath_for(node)
+            (cwd / rel).mkdir(parents=True, exist_ok=True)
+
+        for node in sorted(added_blobs, key=lambda d: len(relpath_for(d).parts)):
+            rel = relpath_for(node)
+            target_path = cwd / rel
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            try:
+                target_path.write_bytes(read_object_bytes(node.record.hash))
+            except Exception as e:
+                msg = f'Failed to add file {rel}'
+                raise RepositoryError(msg) from e
+
+        # Finally, process modifications.
+        # Directories must be created before files to ensure the path exists.
+        for node in sorted(modified, key=lambda d: len(relpath_for(d).parts)):
+            rel = relpath_for(node)
+
+            if node.record.type == TreeRecordType.TREE:
+                (cwd / rel).mkdir(parents=True, exist_ok=True)
+                continue
+
+            if node.record.type != TreeRecordType.BLOB:
+                continue
+
+            target_path = cwd / rel
+            target_path.parent.mkdir(parents=True, exist_ok=True)
+            new_record = record_at_path(target_root, rel, tree_cache)
+            if new_record.type != TreeRecordType.BLOB:
+                msg = f'Target record is not a file: {rel}'
+                raise RepositoryError(msg)
+            try:
+                target_path.write_bytes(read_object_bytes(new_record.hash))
+            except Exception as e:
+                msg = f'Failed to modify file {rel}'
+                raise RepositoryError(msg) from e
+
+                    
+    @requires_repo
+    def checkout(self, target: str) -> None:
+        """Checkout a target (commit or branch) into the working directory.
+
+        :param target: The target to checkout. Can be a commit hash or a branch name
+        :raises RepositoryError: If the target cannot be resolved or if the checkout fails.
+        :raises RepositoryNotFoundError: If the repository does not exist."""
+        is_clean = self.status() == []
+
+        if not is_clean:
+            msg = 'Cannot checkout: working directory has uncommitted changes.'
+            raise RepositoryError(msg)
+        
+        resolved_ref = self._resolve_checkout_target(target)
+        if resolved_ref is None:
+            msg = f'Cannot resolve reference {target}'
+            raise RepositoryError(msg)
+
+        # Build target tree cache for applying ModifiedDiff blobs.
+        tree_cache: dict[str, Tree] = {}
+        try:
+            target_tree, _ = self._resolve_target(resolved_ref, tree_cache)
+        except Exception as e:
+            msg = f'Cannot resolve checkout target tree for {target}'
+            raise RepositoryError(msg) from e
+
+        diffs = self.diff(self.head_commit(), resolved_ref)
+        self._apply_diffs(diffs, target_tree, tree_cache)
+
+        if isinstance(resolved_ref, SymRef) and str(resolved_ref).startswith(f'{HEADS_DIR}/'):
+            write_ref(self.head_file(), resolved_ref)
+            return
+
+        commit_hash = self.resolve_ref(resolved_ref)
+        if commit_hash is None:
+            msg = f'Cannot resolve commit for checkout target {target}'
+            raise RepositoryError(msg)
+        write_ref(self.head_file(), commit_hash)
 
 def branch_ref(branch: str) -> SymRef:
     """Create a symbolic reference for a branch name.
@@ -700,3 +935,9 @@ def branch_ref(branch: str) -> SymRef:
     return SymRef(f'{HEADS_DIR}/{branch}')
 
 
+def tag_ref(tag: str) -> SymRef:
+    """Create a symbolic reference for a tag name.
+
+    :param tag: The name of the tag.
+    :return: A SymRef object representing the tag reference."""
+    return SymRef(f'{TAGS_DIR}/{tag}')
