@@ -12,7 +12,7 @@ from . import Blob, Commit, Tree, TreeRecord, TreeRecordType, Tag
 from .constants import (DEFAULT_BRANCH, DEFAULT_REPO_DIR, HASH_CHARSET, HASH_LENGTH, HEADS_DIR, HEAD_FILE,
                         OBJECTS_SUBDIR, REFS_DIR, TAGS_DIR)
 from .plumbing import hash_object, load_commit, load_tree, open_content_for_reading, save_commit, save_file_content, save_tree, save_tag, load_tag
-from .ref import HashRef, Ref, RefError, SymRef, read_ref, write_ref
+from .ref import HashRef, Ref, RefError, SymRef, read_ref, write_ref, TagRef
 from .exceptions import TagNotFound, TagExistsError, TagError, UnknownHashError, RepositoryError, RepositoryNotFoundError
 from .internal import build_fsTree, MissingHashError
 
@@ -212,18 +212,16 @@ class Repository:
                     return self.resolve_ref(self.head_ref())
 
                 resolved = read_ref(self.refs_dir() / ref)
-                if (
-                    resolved
-                    and isinstance(resolved, HashRef)
-                    and str(ref).startswith(f'{TAGS_DIR}/')
-                ):
+                return self.resolve_ref(resolved)
+            case TagRef(ref):
+                resolved = read_ref(self.refs_dir() / ref)
+                if resolved and isinstance(resolved, HashRef):
                     try:
                         tag_obj = load_tag(self.objects_dir(), resolved)
                     except Exception as e:
                         msg = f'Error loading tag object {resolved}'
                         raise RepositoryError(msg) from e
                     return HashRef(tag_obj.commit_hash)
-
                 return self.resolve_ref(resolved)
             case str():
                 # Try to figure out what kind of ref it is by looking at the list of refs
@@ -724,6 +722,8 @@ class Repository:
 
         explicit_path = self.refs_dir() / target
         if explicit_path.exists() and explicit_path.is_file():
+            if target.startswith(f'{TAGS_DIR}/'):
+                return TagRef(target)
             return SymRef(target)
 
         branch_path = self.heads_dir() / target
@@ -935,9 +935,9 @@ def branch_ref(branch: str) -> SymRef:
     return SymRef(f'{HEADS_DIR}/{branch}')
 
 
-def tag_ref(tag: str) -> SymRef:
-    """Create a symbolic reference for a tag name.
+def tag_ref(tag: str) -> TagRef:
+    """Create a tag reference for a tag name.
 
     :param tag: The name of the tag.
-    :return: A SymRef object representing the tag reference."""
-    return SymRef(f'{TAGS_DIR}/{tag}')
+    :return: A TagRef object representing the tag reference."""
+    return TagRef(f'{TAGS_DIR}/{tag}')

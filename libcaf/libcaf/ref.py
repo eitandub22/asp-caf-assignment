@@ -23,9 +23,18 @@ class SymRef(str):
     def branch_name(self) -> str:
         """Extract the branch name from a symbolic reference."""
         return self.split('/')[-1] if '/' in self else self
+    
+class TagRef(str):
+    """A tag reference that points to a tag name."""
+
+    __slots__ = ()
+
+    def tag_name(self) -> str:
+        """Extract the tag name from a tag reference."""
+        return self.split('/')[-1] if '/' in self else self
 
 
-Ref = HashRef | SymRef | str
+Ref = HashRef | SymRef | TagRef | str
 
 
 def read_ref(ref_file: Path) -> Ref | None:
