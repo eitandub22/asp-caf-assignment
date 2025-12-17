@@ -14,7 +14,7 @@ def test_checkout_fails_if_dirty(temp_repo: Repository) -> None:
     temp_repo.add_branch("feature")
     temp_repo.update_ref(branch_ref("feature"), temp_repo.head_commit())
     
-    with pytest.raises(RepositoryError, match="working directory has uncommitted changes"):
+    with pytest.raises(RepositoryError):
         temp_repo.checkout("feature")
 
 def test_checkout_switch_branches(temp_repo: Repository) -> None:

@@ -735,6 +735,39 @@ class Repository:
             return tag_ref(target)
 
         return None
+    
+    def _relpath_for(self, node: Diff) -> Path:
+        parts: list[str] = []
+        current: Diff | None = node
+        while current is not None and current.parent is not None:
+            if current.record.name:
+                parts.append(current.record.name)
+            current = current.parent
+        return Path(*reversed(parts))
+
+    def _read_object_bytes(self, hash_value: str) -> bytes:
+        with open_content_for_reading(self.objects_dir(), hash_value) as f:
+            return f.read()
+
+    def _record_at_path(self, root: Tree, rel_path: Path, tree_cache: dict[str, Tree]) -> TreeRecord:
+        current_tree = root
+        parts = list(rel_path.parts)
+        if not parts:
+            msg = 'Cannot resolve record at empty path'
+            raise RepositoryError(msg)
+
+        for part in parts[:-1]:
+            record = current_tree.records.get(part)
+            if record is None or record.type != TreeRecordType.TREE:
+                msg = f'Path does not resolve to a directory: {rel_path}'
+                raise RepositoryError(msg)
+            current_tree = self._load_tree(record.hash, tree_cache)
+
+        leaf = current_tree.records.get(parts[-1])
+        if leaf is None:
+            msg = f'Record not found in target tree: {rel_path}'
+            raise RepositoryError(msg)
+        return leaf
 
     def _apply_diffs(self, diffs: Sequence[Diff], target_root: Tree, tree_cache: dict[str, Tree]) -> None:
         """ 
@@ -743,39 +776,6 @@ class Repository:
             :param diffs: The sequence of Diff objects to apply.
             :raises RepositoryError: If applying any of the diffs fails.
         """
-        def relpath_for(node: Diff) -> Path:
-            parts: list[str] = []
-            current: Diff | None = node
-            while current is not None and current.parent is not None:
-                if current.record.name:
-                    parts.append(current.record.name)
-                current = current.parent
-            return Path(*reversed(parts))
-
-        def read_object_bytes(hash_value: str) -> bytes:
-            with open_content_for_reading(self.objects_dir(), hash_value) as f:
-                return f.read()
-
-        def record_at_path(root: Tree, rel_path: Path, tree_cache: dict[str, Tree]) -> TreeRecord:
-            current_tree = root
-            parts = list(rel_path.parts)
-            if not parts:
-                msg = 'Cannot resolve record at empty path'
-                raise RepositoryError(msg)
-
-            for part in parts[:-1]:
-                record = current_tree.records.get(part)
-                if record is None or record.type != TreeRecordType.TREE:
-                    msg = f'Path does not resolve to a directory: {rel_path}'
-                    raise RepositoryError(msg)
-                current_tree = self._load_tree(record.hash, tree_cache)
-
-            leaf = current_tree.records.get(parts[-1])
-            if leaf is None:
-                msg = f'Record not found in target tree: {rel_path}'
-                raise RepositoryError(msg)
-            return leaf
-
         # Flatten diff tree so ordering can be applied globally.
         all_nodes: list[Diff] = []
         stack = list(diffs)
@@ -807,11 +807,11 @@ class Repository:
             raise RepositoryError(msg)
 
         # Process moves first. Process only MovedFromDiff to avoid double-applying.
-        for node in sorted(moved_from, key=lambda d: len(relpath_for(d).parts)):
+        for node in sorted(moved_from, key=lambda d: len(self._relpath_for(d).parts)):
             if node.moved_from is None:
                 continue
-            old_rel = relpath_for(node.moved_from)
-            new_rel = relpath_for(node)
+            old_rel = self._relpath_for(node.moved_from)
+            new_rel = self._relpath_for(node)
             old_path = cwd / old_rel
             new_path = cwd / new_rel
 
@@ -829,8 +829,8 @@ class Repository:
             
         # Now process removals.
         # We remove from the deepest paths first to avoid issues with non-empty directories.
-        for node in sorted(removed, key=lambda d: len(relpath_for(d).parts), reverse=True):
-            rel = relpath_for(node)
+        for node in sorted(removed, key=lambda d: len(self._relpath_for(d).parts), reverse=True):
+            rel = self._relpath_for(node)
             target_path = cwd / rel
             if not target_path.exists():
                 continue
@@ -849,24 +849,24 @@ class Repository:
         added_dirs = [d for d in added if d.record.type == TreeRecordType.TREE]
         added_blobs = [d for d in added if d.record.type == TreeRecordType.BLOB]
 
-        for node in sorted(added_dirs, key=lambda d: len(relpath_for(d).parts)):
-            rel = relpath_for(node)
+        for node in sorted(added_dirs, key=lambda d: len(self._relpath_for(d).parts)):
+            rel = self._relpath_for(node)
             (cwd / rel).mkdir(parents=True, exist_ok=True)
 
-        for node in sorted(added_blobs, key=lambda d: len(relpath_for(d).parts)):
-            rel = relpath_for(node)
+        for node in sorted(added_blobs, key=lambda d: len(self._relpath_for(d).parts)):
+            rel = self._relpath_for(node)
             target_path = cwd / rel
             target_path.parent.mkdir(parents=True, exist_ok=True)
             try:
-                target_path.write_bytes(read_object_bytes(node.record.hash))
+                target_path.write_bytes(self._read_object_bytes(node.record.hash))
             except Exception as e:
                 msg = f'Failed to add file {rel}'
                 raise RepositoryError(msg) from e
 
         # Finally, process modifications.
         # Directories must be created before files to ensure the path exists.
-        for node in sorted(modified, key=lambda d: len(relpath_for(d).parts)):
-            rel = relpath_for(node)
+        for node in sorted(modified, key=lambda d: len(self._relpath_for(d).parts)):
+            rel = self._relpath_for(node)
 
             if node.record.type == TreeRecordType.TREE:
                 (cwd / rel).mkdir(parents=True, exist_ok=True)
@@ -877,12 +877,12 @@ class Repository:
 
             target_path = cwd / rel
             target_path.parent.mkdir(parents=True, exist_ok=True)
-            new_record = record_at_path(target_root, rel, tree_cache)
+            new_record = self._record_at_path(target_root, rel, tree_cache)
             if new_record.type != TreeRecordType.BLOB:
                 msg = f'Target record is not a file: {rel}'
                 raise RepositoryError(msg)
             try:
-                target_path.write_bytes(read_object_bytes(new_record.hash))
+                target_path.write_bytes(self._read_object_bytes(new_record.hash))
             except Exception as e:
                 msg = f'Failed to modify file {rel}'
                 raise RepositoryError(msg) from e
