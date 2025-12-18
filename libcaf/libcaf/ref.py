@@ -23,7 +23,7 @@ class SymRef(str):
     def branch_name(self) -> str:
         """Extract the branch name from a symbolic reference."""
         return self.split('/')[-1] if '/' in self else self
-    
+
 class TagRef(str):
     """A tag reference that points to a tag name."""
 
@@ -42,7 +42,8 @@ def read_ref(ref_file: Path) -> Ref | None:
 
     :param ref_file: Path to the reference file
     :return: A Ref object (HashRef or SymRef) or None if the file is empty
-    :raises RefError: If the reference format is invalid"""
+    :raises RefError: If the reference format is invalid
+    """
     with ref_file.open() as f:
         content = f.read().strip()
 
@@ -64,7 +65,8 @@ def write_ref(ref_file: Path, ref: Ref) -> None:
 
     :param ref_file: Path to the reference file
     :param ref: Reference to write (HashRef or SymRef)
-    :raises RefError: If the reference type is invalid"""
+    :raises RefError: If the reference type is invalid
+    """
     with ref_file.open('w') as f:
         match ref:
             case HashRef():

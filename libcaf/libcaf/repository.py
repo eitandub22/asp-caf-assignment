@@ -4,54 +4,45 @@ import shutil
 from collections import deque
 from collections.abc import Callable, Generator, Sequence
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 from functools import wraps
 from pathlib import Path
-from typing import Concatenate, Tuple
-from . import Blob, Commit, Tree, TreeRecord, TreeRecordType, Tag
-from .constants import (DEFAULT_BRANCH, DEFAULT_REPO_DIR, HASH_CHARSET, HASH_LENGTH, HEADS_DIR, HEAD_FILE,
-                        OBJECTS_SUBDIR, REFS_DIR, TAGS_DIR)
-from .plumbing import hash_object, load_commit, load_tree, open_content_for_reading, save_commit, save_file_content, save_tree, save_tag, load_tag
-from .ref import HashRef, Ref, RefError, SymRef, read_ref, write_ref, TagRef
-from .exceptions import TagNotFound, TagExistsError, TagError, UnknownHashError, RepositoryError, RepositoryNotFoundError
-from .internal import build_fsTree, MissingHashError
+from typing import Concatenate
 
-@dataclass
-class Diff:
-    """A class representing a difference between two tree records."""
-
-    record: TreeRecord
-    parent: 'Diff | None'
-    children: list['Diff']
-
-
-@dataclass
-class AddedDiff(Diff):
-    """An added tree record diff as part of a commit."""
-
-
-@dataclass
-class RemovedDiff(Diff):
-    """A removed tree record diff as part of a commit."""
-
-
-@dataclass
-class ModifiedDiff(Diff):
-    """A modified tree record diff as part of a commit."""
-
-
-@dataclass
-class MovedToDiff(Diff):
-    """A tree record diff that has been moved elsewhere as part of a commit."""
-
-    moved_to: 'MovedFromDiff | None'
-
-
-@dataclass
-class MovedFromDiff(Diff):
-    """A tree record diff that has been moved from elsewhere as part of a commit."""
-
-    moved_from: MovedToDiff | None
+from . import Blob, Commit, Tag, Tree, TreeRecord, TreeRecordType
+from .checkout import apply_diffs
+from .constants import (
+    DEFAULT_BRANCH,
+    DEFAULT_REPO_DIR,
+    HASH_CHARSET,
+    HASH_LENGTH,
+    HEAD_FILE,
+    HEADS_DIR,
+    OBJECTS_SUBDIR,
+    REFS_DIR,
+    TAGS_DIR,
+)
+from .diff import AddedDiff, Diff, ModifiedDiff, MovedFromDiff, MovedToDiff, RemovedDiff
+from .exceptions import (
+    RepositoryError,
+    RepositoryNotFoundError,
+    TagError,
+    TagExistsError,
+    TagNotFound,
+    UnknownHashError,
+)
+from .internal import MissingHashError, build_fsTree
+from .plumbing import (
+    hash_object,
+    load_commit,
+    load_tag,
+    load_tree,
+    save_commit,
+    save_file_content,
+    save_tag,
+    save_tree,
+)
+from .ref import HashRef, Ref, RefError, SymRef, TagRef, read_ref, write_ref
 
 
 @dataclass
@@ -66,13 +57,15 @@ class Repository:
     """Represents a libcaf repository.
 
     This class provides methods to initialize a repository, manage branches,
-    commit changes, and perform various operations on the repository."""
+    commit changes, and perform various operations on the repository.
+    """
 
     def __init__(self, working_dir: Path | str, repo_dir: Path | str | None = None) -> None:
         """Initialize a Repository instance. The repository is not created on disk until `init()` is called.
 
         :param working_dir: The working directory where the repository will be located.
-        :param repo_dir: The name of the repository directory within the working directory. Defaults to '.caf'."""
+        :param repo_dir: The name of the repository directory within the working directory. Defaults to '.caf'.
+        """
         self.working_dir = Path(working_dir)
 
         if repo_dir is None:
@@ -84,7 +77,8 @@ class Repository:
         """Initialize a new CAF repository in the working directory.
 
         :param default_branch: The name of the default branch to create. Defaults to 'main'.
-        :raises RepositoryError: If the repository already exists or if the working directory is invalid."""
+        :raises RepositoryError: If the repository already exists or if the working directory is invalid.
+        """
         self.repo_path().mkdir(parents=True)
         self.objects_dir().mkdir()
 
@@ -101,37 +95,43 @@ class Repository:
     def exists(self) -> bool:
         """Check if the repository exists in the working directory.
 
-        :return: True if the repository exists, False otherwise."""
+        :return: True if the repository exists, False otherwise.
+        """
         return self.repo_path().exists()
 
     def repo_path(self) -> Path:
         """Get the path to the repository directory.
 
-        :return: The path to the repository directory."""
+        :return: The path to the repository directory.
+        """
         return self.working_dir / self.repo_dir
 
     def objects_dir(self) -> Path:
         """Get the path to the objects directory within the repository.
 
-        :return: The path to the objects directory."""
+        :return: The path to the objects directory.
+        """
         return self.repo_path() / OBJECTS_SUBDIR
 
     def refs_dir(self) -> Path:
         """Get the path to the refs directory within the repository.
 
-        :return: The path to the refs directory."""
+        :return: The path to the refs directory.
+        """
         return self.repo_path() / REFS_DIR
 
     def heads_dir(self) -> Path:
         """Get the path to the heads directory within the repository.
 
-        :return: The path to the heads directory."""
+        :return: The path to the heads directory.
+        """
         return self.refs_dir() / HEADS_DIR
-    
+
     def tags_dir(self) -> Path:
         """Get the path to the tags directory within the repository.
 
-        :return: The path to the tags directory."""
+        :return: The path to the tags directory.
+        """
         return self.refs_dir() / TAGS_DIR
 
     @staticmethod
@@ -140,7 +140,8 @@ class Repository:
         """Decorate a Repository method to ensure that the repository exists before executing the method.
 
         :param func: The method to decorate.
-        :return: A wrapper function that checks for the repository's existence."""
+        :return: A wrapper function that checks for the repository's existence.
+        """
 
         @wraps(func)
         def _verify_repo(self: 'Repository', *args: P.args, **kwargs: P.kwargs) -> R:
@@ -158,7 +159,8 @@ class Repository:
 
         :return: The current HEAD reference, which can be a HashRef or SymRef.
         :raises RepositoryError: If the HEAD ref file does not exist.
-        :raises RepositoryNotFoundError: If the repository does not exist."""
+        :raises RepositoryNotFoundError: If the repository does not exist.
+        """
         head_file = self.head_file()
         if not head_file.exists():
             msg = 'HEAD ref file does not exist'
@@ -172,7 +174,8 @@ class Repository:
 
         :return: The current commit reference, or None if HEAD is not a commit.
         :raises RepositoryError: If the HEAD ref file does not exist.
-        :raises RepositoryNotFoundError: If the repository does not exist."""
+        :raises RepositoryNotFoundError: If the repository does not exist.
+        """
         # If HEAD is a symbolic reference, resolve it to a hash
         resolved_ref = self.resolve_ref(self.head_ref())
         if resolved_ref:
@@ -185,7 +188,8 @@ class Repository:
 
         :return: A list of SymRef objects representing the symbolic references.
         :raises RepositoryError: If the refs directory does not exist or is not a directory.
-        :raises RepositoryNotFoundError: If the repository does not exist."""
+        :raises RepositoryNotFoundError: If the repository does not exist.
+        """
         refs_dir = self.refs_dir()
         if not refs_dir.exists() or not refs_dir.is_dir():
             msg = f'Refs directory does not exist or is not a directory: {refs_dir}'
@@ -203,7 +207,8 @@ class Repository:
         :param ref: The reference to resolve. This can be a HashRef, SymRef, or a string.
         :return: The resolved HashRef or None if the reference does not exist.
         :raises RefError: If the reference is invalid or cannot be resolved.
-        :raises RepositoryNotFoundError: If the repository does not exist."""
+        :raises RepositoryNotFoundError: If the repository does not exist.
+        """
         match ref:
             case HashRef():
                 return ref
@@ -215,14 +220,13 @@ class Repository:
                 return self.resolve_ref(resolved)
             case TagRef(ref):
                 resolved = read_ref(self.refs_dir() / ref)
-                if resolved and isinstance(resolved, HashRef):
+                if resolved:
                     try:
-                        tag_obj = load_tag(self.objects_dir(), resolved)
+                        tag = load_tag(self.objects_dir(), resolved)
                     except Exception as e:
-                        msg = f'Error loading tag object {resolved}'
-                        raise RepositoryError(msg) from e
-                    return HashRef(tag_obj.commit_hash)
-                return self.resolve_ref(resolved)
+                        msg = f'Failed to load tag object for reference: {ref}'
+                        raise TagError(msg) from e
+                return self.resolve_ref(tag.commit_hash)
             case str():
                 # Try to figure out what kind of ref it is by looking at the list of refs
                 # in the refs directory
@@ -246,7 +250,8 @@ class Repository:
         :param ref_name: The name of the symbolic reference to update.
         :param new_ref: The new reference value to set.
         :raises RepositoryError: If the reference does not exist.
-        :raises RepositoryNotFoundError: If the repository does not exist."""
+        :raises RepositoryNotFoundError: If the repository does not exist.
+        """
         ref_path = self.refs_dir() / ref_name
 
         if not ref_path.exists():
@@ -259,7 +264,8 @@ class Repository:
     def delete_repo(self) -> None:
         """Delete the entire repository, including all objects and refs.
 
-        :raises RepositoryNotFoundError: If the repository does not exist."""
+        :raises RepositoryNotFoundError: If the repository does not exist.
+        """
         shutil.rmtree(self.repo_path())
 
     @requires_repo
@@ -269,7 +275,8 @@ class Repository:
         :param file: The path to the file to save.
         :return: A Blob object representing the saved file content.
         :raises ValueError: If the file does not exist.
-        :raises RepositoryNotFoundError: If the repository does not exist."""
+        :raises RepositoryNotFoundError: If the repository does not exist.
+        """
         return save_file_content(self.objects_dir(), file)
 
     @requires_repo
@@ -279,7 +286,8 @@ class Repository:
         :param branch: The name of the branch to add.
         :raises ValueError: If the branch name is empty.
         :raises RepositoryError: If the branch already exists.
-        :raises RepositoryNotFoundError: If the repository does not exist."""
+        :raises RepositoryNotFoundError: If the repository does not exist.
+        """
         if not branch:
             msg = 'Branch name is required'
             raise ValueError(msg)
@@ -296,7 +304,8 @@ class Repository:
         :param branch: The name of the branch to delete.
         :raises ValueError: If the branch name is empty.
         :raises RepositoryError: If the branch does not exist or if it is the last branch in the repository.
-        :raises RepositoryNotFoundError: If the repository does not exist."""
+        :raises RepositoryNotFoundError: If the repository does not exist.
+        """
         if not branch:
             msg = 'Branch name is required'
             raise ValueError(msg)
@@ -317,7 +326,8 @@ class Repository:
 
         :param branch_ref: The reference to the branch to check.
         :return: True if the branch exists, False otherwise.
-        :raises RepositoryNotFoundError: If the repository does not exist."""
+        :raises RepositoryNotFoundError: If the repository does not exist.
+        """
         return (self.heads_dir() / branch_ref).exists()
 
     @requires_repo
@@ -325,7 +335,8 @@ class Repository:
         """Get a list of all branch names in the repository.
 
         :return: A list of branch names.
-        :raises RepositoryNotFoundError: If the repository does not exist."""
+        :raises RepositoryNotFoundError: If the repository does not exist.
+        """
         return [x.name for x in self.heads_dir().iterdir() if x.is_file()]
 
     @requires_repo
@@ -335,7 +346,8 @@ class Repository:
         :param path: The path to the directory to save.
         :return: A HashRef object representing the saved directory tree object.
         :raises NotADirectoryError: If the path is not a directory.
-        :raises RepositoryNotFoundError: If the repository does not exist."""
+        :raises RepositoryNotFoundError: If the repository does not exist.
+        """
         if not path or not path.is_dir():
             msg = f'{path} is not a directory'
             raise NotADirectoryError(msg)
@@ -377,7 +389,8 @@ class Repository:
         :return: A HashRef object representing the commit reference.
         :raises ValueError: If the author or message is empty.
         :raises RepositoryError: If the commit process fails.
-        :raises RepositoryNotFoundError: If the repository does not exist."""
+        :raises RepositoryNotFoundError: If the repository does not exist.
+        """
         if not author:
             msg = 'Author is required'
             raise ValueError(msg)
@@ -397,7 +410,7 @@ class Repository:
         # Save the current working directory as a tree
         tree_hash = self.save_dir(self.working_dir)
 
-        commit = Commit(tree_hash, author, message, int(datetime.now().timestamp()), parent_commit_ref)
+        commit = Commit(tree_hash, author, message, int(datetime.now(UTC).timestamp()), parent_commit_ref)
         commit_ref = HashRef(hash_object(commit))
 
         save_commit(self.objects_dir(), commit)
@@ -414,7 +427,8 @@ class Repository:
         :param tip: The reference to the commit to start from. If None, defaults to the current HEAD.
         :return: A generator yielding LogEntry objects representing the commits in the log.
         :raises RepositoryError: If a commit cannot be loaded.
-        :raises RepositoryNotFoundError: If the repository does not exist."""
+        :raises RepositoryNotFoundError: If the repository does not exist.
+        """
         tip = tip or self.head_ref()
         current_hash = self.resolve_ref(tip)
 
@@ -427,16 +441,16 @@ class Repository:
         except Exception as e:
             msg = f'Error loading commit {current_hash}'
             raise RepositoryError(msg) from e
-        
-        
-    def _resolve_target(self, t: Ref | Path | None, tree_hashes: dict[str, Tree]) -> Tuple[Tree, str]:
-        """
-        Resolves a target to a tree hash.
+
+    def _resolve_target(self, t: Ref | Path | None, tree_hashes: dict[str, Tree]) -> tuple[Tree, str]:
+        """Resolve a target to a tree hash.
+
         The target `t` can be either:
             - A `Path` object: The method builds a Tree from the filesystem at the given path,
-              populates `tree_hashes` with the resulting trees, and returns the root tree hash.
+            populates `tree_hashes` with the resulting trees, and returns the root tree hash.
             - A `Ref` object or None: The method resolves the reference to a commit hash,
-              loads the corresponding commit, and returns its tree hash.
+            loads the corresponding commit, and returns its tree hash.
+
         :param t: The target to resolve, which can be a `Path`, a `Ref`, or None.
         :param tree_hashes: A dictionary to populate with tree hashes and their corresponding Tree objects.
         :return: The resolved Tree object and its hash.
@@ -453,26 +467,27 @@ class Repository:
                 msg = f'Error building tree from path {t}'
                 raise RepositoryError(msg) from e
             return root, root_hash
-        
+
         commit_hash = self.resolve_ref(t)
         if commit_hash is None:
             msg = f'Cannot resolve reference {t}'
             raise RefError(msg)
-        
+
         try:
             commit = load_commit(self.objects_dir(), commit_hash)
             tree_hashes[commit.tree_hash] = load_tree(self.objects_dir(), commit.tree_hash)
         except Exception as e:
-            raise RepositoryError(f"Failed to load commit {commit_hash}") from e
+            msg = f'Failed to load commit {commit_hash}'
+            raise RepositoryError(msg) from e
         return tree_hashes[commit.tree_hash], commit.tree_hash
-    
+
     def _load_tree(self, record_hash: str, tree_hashes: dict[str, Tree]) -> Tree:
         if record_hash in tree_hashes:
             return tree_hashes[record_hash]
         # Cache miss - load from disk
         tree_hashes[record_hash] = load_tree(self.objects_dir(), record_hash)
         return tree_hashes[record_hash]
-    
+
     @requires_repo
     def diff(self, target1: Ref | Path | None = None, target2: Ref | Path | None = None) -> Sequence[Diff]:
         """Compare two targets (commits, refs, or paths) and generate a diff.
@@ -484,15 +499,15 @@ class Repository:
         :param target2: The second target to compare. Can be a commit hash, branch name, or Path.
         :return: A list of Diff objects representing the changes.
         :raises RepositoryError: If a target cannot be resolved.
-        :raises RepositoryNotFoundError: If the repository does not exist."""
-
+        :raises RepositoryNotFoundError: If the repository does not exist.
+        """
         if target1 is None:
             msg = 'The first diff target must be given'
             raise ValueError(msg)
         if target2 is None:
             msg = 'The second diff target must be given'
             raise ValueError(msg)
-        
+
         tree_hashes: dict[str, Tree] = {}
 
         try:
@@ -610,15 +625,27 @@ class Repository:
     def head_file(self) -> Path:
         """Get the path to the HEAD file within the repository.
 
-        :return: The path to the HEAD file."""
+        :return: The path to the HEAD file.
+        """
         return self.repo_path() / HEAD_FILE
-    
+
+    @requires_repo
+    def tag_exists(self, tag_ref: Ref) -> bool:
+        """Check if a tag exists in the repository.
+
+        :param tag_ref: The reference to the tag to check.
+        :return: True if the tag exists, False otherwise.
+        :raises RepositoryNotFoundError: If the repository does not exist.
+        """
+        return (self.tags_dir() / tag_ref).exists()
+
     @requires_repo
     def tags(self) -> list[Tag]:
         """Get a list of all tags in the repository.
 
         :return: A list of tags.
-        :raises RepositoryNotFoundError: If the repository does not exist."""
+        :raises RepositoryNotFoundError: If the repository does not exist.
+        """
         tags = []
         tag_names = [x.name for x in self.tags_dir().iterdir() if x.is_file()]
 
@@ -629,14 +656,15 @@ class Repository:
             tags.append(tag)
 
         return tags
-    
+
     @requires_repo
     def delete_tag(self, tag_name: str) -> None:
         """Delete a tag from the repository.
 
         :param tag_name: The name of the tag to delete.
         :raises ValueError: If the tag name is empty.
-        :raises RepositoryNotFoundError: If the repository does not exist."""
+        :raises RepositoryNotFoundError: If the repository does not exist.
+        """
         if not tag_name:
             msg = 'Tag name is required'
             raise ValueError(msg)
@@ -646,7 +674,7 @@ class Repository:
             raise TagNotFound(tag_name)
 
         tag_path.unlink()
-    
+
     @requires_repo
     def create_tag(self, tag_name: str, commit_hash: str, author: str, message: str) -> None:
         """Add a new tag to the repository.
@@ -657,62 +685,63 @@ class Repository:
         :param message: The tag message.
         :raises ValueError: If the tag name is empty.
         :raises RepositoryError: If the tag already exists.
-        :raises RepositoryNotFoundError: If the repository does not exist."""
+        :raises RepositoryNotFoundError: If the repository does not exist.
+        """
         if not tag_name:
             msg = 'Tag name is required'
             raise ValueError(msg)
-                
+
         if not commit_hash or len(commit_hash) != HASH_LENGTH or not all(c in HASH_CHARSET for c in commit_hash):
             msg = f'Invalid commit hash: {commit_hash}'
             raise ValueError(msg)
-        
+
         if not author:
             msg = 'Tag author is required'
             raise ValueError(msg)
-        
+
         if not message:
             msg = 'Tag message is required'
             raise ValueError(msg)
-        
+
         # Verify that the commit exists
         if not (self.objects_dir() / commit_hash[:2] / commit_hash).is_file():
             raise UnknownHashError(commit_hash)
-        
-        try:
-            commit = load_commit(self.objects_dir(), HashRef(commit_hash))
 
+        try:
+            _ = load_commit(self.objects_dir(), HashRef(commit_hash))
         except Exception as e:
             raise RepositoryError(e) from e
-        
+
         tag_path = self.tags_dir() / tag_name
 
         # Check if the tag already exists, to avoid overwriting
-        if tag_path.exists():
-            raise TagExistsError(tag_path)
+        if self.tag_exists(TagRef(tag_name)):
+            raise TagExistsError(tag_name)
 
         try:
-            tag_obj = Tag(tag_name, commit_hash, author, message, int(datetime.now().timestamp()))
+            tag_obj = Tag(tag_name, commit_hash, author, message, int(datetime.now(UTC).timestamp()))
             tag_object_hash = hash_object(tag_obj)
             save_tag(self.objects_dir(), tag_obj)
             write_ref(tag_path, tag_object_hash)
         except RefError as e:
-            raise TagError(f"Failed to write tag to {tag_path}: {e}") from e
-        
+            msg = f'Failed to write tag to {tag_path}: {e}'
+            raise TagError(msg) from e
+
     @requires_repo
     def status(self) -> Sequence[Diff]:
+        """Get the status of the working directory compared to the current HEAD commit."""
         return self.diff(self.head_commit(), self.working_dir)
-    
-    def _resolve_checkout_target(self, target: str) -> Ref | None:
-        """ Resolve a checkout target to a Ref.
 
-            The resolution is done by scanning the refs directory so we can distinguish between
-            branches and tags by location.
-            If there is a collision between a branch and a tag name, the branch takes precedence similair to Git.
+    def _parse_ref(self, target: str) -> Ref | None:
+        """Parse a target given as a string to a Ref.
 
-            :param target: The checkout target provided by the user.
-            :return: The resolved Ref object or None if the target does not exist.
+        The parsing is done by scanning the refs directory so we can distinguish between
+        branches and tags by location.
+        If there is a collision between a branch and a tag name, the branch takes precedence similar to Git.
+
+        :param target: The checkout target provided by the user.
+        :return: The resolved Ref object or None if the target does not exist.
         """
-
         if not isinstance(target, str):
             msg = f'Invalid checkout target type: {type(target)}'
             raise RefError(msg)
@@ -720,218 +749,71 @@ class Repository:
         if len(target) == HASH_LENGTH and all(c in HASH_CHARSET for c in target):
             return HashRef(target)
 
+        # If the user provided an explicit path such as tags/v1.0, use that directly
         explicit_path = self.refs_dir() / target
         if explicit_path.exists() and explicit_path.is_file():
-            if target.startswith(f'{TAGS_DIR}/'):
-                return TagRef(target)
-            return SymRef(target)
+            return TagRef(target) if target.startswith(f'{TAGS_DIR}/') else SymRef(target)
 
-        branch_path = self.heads_dir() / target
-        if branch_path.exists():
-            return branch_ref(target)
+        if self.branch_exists(SymRef(target)):
+           return branch_ref(target)
 
-        tag_path = self.tags_dir() / target
-        if tag_path.exists():
+        if self.tag_exists(TagRef(target)):
             return tag_ref(target)
 
         return None
-    
-    def _relpath_for(self, node: Diff) -> Path:
-        parts: list[str] = []
-        current: Diff | None = node
-        while current is not None and current.parent is not None:
-            if current.record.name:
-                parts.append(current.record.name)
-            current = current.parent
-        return Path(*reversed(parts))
 
-    def _read_object_bytes(self, hash_value: str) -> bytes:
-        with open_content_for_reading(self.objects_dir(), hash_value) as f:
-            return f.read()
 
-    def _record_at_path(self, root: Tree, rel_path: Path, tree_cache: dict[str, Tree]) -> TreeRecord:
-        current_tree = root
-        parts = list(rel_path.parts)
-        if not parts:
-            msg = 'Cannot resolve record at empty path'
-            raise RepositoryError(msg)
-
-        for part in parts[:-1]:
-            record = current_tree.records.get(part)
-            if record is None or record.type != TreeRecordType.TREE:
-                msg = f'Path does not resolve to a directory: {rel_path}'
-                raise RepositoryError(msg)
-            current_tree = self._load_tree(record.hash, tree_cache)
-
-        leaf = current_tree.records.get(parts[-1])
-        if leaf is None:
-            msg = f'Record not found in target tree: {rel_path}'
-            raise RepositoryError(msg)
-        return leaf
-
-    def _apply_diffs(self, diffs: Sequence[Diff], target_root: Tree, tree_cache: dict[str, Tree]) -> None:
-        """ 
-            Apply a sequence of diffs to the working directory.
-
-            :param diffs: The sequence of Diff objects to apply.
-            :raises RepositoryError: If applying any of the diffs fails.
-        """
-        # Flatten diff tree so ordering can be applied globally.
-        all_nodes: list[Diff] = []
-        stack = list(diffs)
-        while stack:
-            node = stack.pop()
-            all_nodes.append(node)
-            if node.children:
-                stack.extend(node.children)
-
-        added: list[AddedDiff] = []
-        removed: list[RemovedDiff] = []
-        modified: list[ModifiedDiff] = []
-        moved_from: list[MovedFromDiff] = []
-
-        for node in all_nodes:
-            if isinstance(node, AddedDiff):
-                added.append(node)
-            elif isinstance(node, RemovedDiff):
-                removed.append(node)
-            elif isinstance(node, ModifiedDiff):
-                modified.append(node)
-            elif isinstance(node, MovedFromDiff):
-                moved_from.append(node)
-
-        cwd = self.working_dir
-
-        if target_root is None:
-            msg = 'Internal error: checkout target tree not set'
-            raise RepositoryError(msg)
-
-        # Process moves first. Process only MovedFromDiff to avoid double-applying.
-        for node in sorted(moved_from, key=lambda d: len(self._relpath_for(d).parts)):
-            if node.moved_from is None:
-                continue
-            old_rel = self._relpath_for(node.moved_from)
-            new_rel = self._relpath_for(node)
-            old_path = cwd / old_rel
-            new_path = cwd / new_rel
-
-            if not old_path.exists():
-                msg = f'Cannot move missing path: {old_rel}'
-                raise RepositoryError(msg)
-
-            new_path.parent.mkdir(parents=True, exist_ok=True)
-
-            try:
-                shutil.move(str(old_path), str(new_path))
-            except Exception as e:
-                msg = f'Failed to move {old_rel} to {new_rel}'
-                raise RepositoryError(msg) from e
-            
-        # Now process removals.
-        # We remove from the deepest paths first to avoid issues with non-empty directories.
-        for node in sorted(removed, key=lambda d: len(self._relpath_for(d).parts), reverse=True):
-            rel = self._relpath_for(node)
-            target_path = cwd / rel
-            if not target_path.exists():
-                continue
-
-            try:
-                if target_path.is_dir():
-                    shutil.rmtree(target_path)
-                else:
-                    target_path.unlink()
-            except Exception as e:
-                msg = f'Failed to remove {rel}'
-                raise RepositoryError(msg) from e
-
-        # We move on to additions.
-        # Directories must be created before files to ensure the path exists.
-        added_dirs = [d for d in added if d.record.type == TreeRecordType.TREE]
-        added_blobs = [d for d in added if d.record.type == TreeRecordType.BLOB]
-
-        for node in sorted(added_dirs, key=lambda d: len(self._relpath_for(d).parts)):
-            rel = self._relpath_for(node)
-            (cwd / rel).mkdir(parents=True, exist_ok=True)
-
-        for node in sorted(added_blobs, key=lambda d: len(self._relpath_for(d).parts)):
-            rel = self._relpath_for(node)
-            target_path = cwd / rel
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            try:
-                target_path.write_bytes(self._read_object_bytes(node.record.hash))
-            except Exception as e:
-                msg = f'Failed to add file {rel}'
-                raise RepositoryError(msg) from e
-
-        # Finally, process modifications.
-        # Directories must be created before files to ensure the path exists.
-        for node in sorted(modified, key=lambda d: len(self._relpath_for(d).parts)):
-            rel = self._relpath_for(node)
-
-            if node.record.type == TreeRecordType.TREE:
-                (cwd / rel).mkdir(parents=True, exist_ok=True)
-                continue
-
-            if node.record.type != TreeRecordType.BLOB:
-                continue
-
-            target_path = cwd / rel
-            target_path.parent.mkdir(parents=True, exist_ok=True)
-            new_record = self._record_at_path(target_root, rel, tree_cache)
-            if new_record.type != TreeRecordType.BLOB:
-                msg = f'Target record is not a file: {rel}'
-                raise RepositoryError(msg)
-            try:
-                target_path.write_bytes(self._read_object_bytes(new_record.hash))
-            except Exception as e:
-                msg = f'Failed to modify file {rel}'
-                raise RepositoryError(msg) from e
-
-                    
     @requires_repo
     def checkout(self, target: str) -> None:
         """Checkout a target (commit or branch) into the working directory.
 
         :param target: The target to checkout. Can be a commit hash or a branch name
         :raises RepositoryError: If the target cannot be resolved or if the checkout fails.
-        :raises RepositoryNotFoundError: If the repository does not exist."""
+        :raises RepositoryNotFoundError: If the repository does not exist.
+        """
         is_clean = self.status() == []
 
         if not is_clean:
             msg = 'Cannot checkout: working directory has uncommitted changes.'
             raise RepositoryError(msg)
-        
-        resolved_ref = self._resolve_checkout_target(target)
+
+        resolved_ref = self._parse_ref(target)
         if resolved_ref is None:
             msg = f'Cannot resolve reference {target}'
             raise RepositoryError(msg)
 
-        # Build target tree cache for applying ModifiedDiff blobs.
-        tree_cache: dict[str, Tree] = {}
-        try:
-            target_tree, _ = self._resolve_target(resolved_ref, tree_cache)
-        except Exception as e:
-            msg = f'Cannot resolve checkout target tree for {target}'
-            raise RepositoryError(msg) from e
-
         diffs = self.diff(self.head_commit(), resolved_ref)
-        self._apply_diffs(diffs, target_tree, tree_cache)
+        target_tree: Tree | None = None
+        if any(isinstance(diff, ModifiedDiff) for diff in diffs):
+            commit_hash = self.resolve_ref(resolved_ref)
+            if commit_hash is None:
+                msg = f'Cannot resolve reference {resolved_ref}'
+                raise RefError(msg)
+            try:
+                commit = load_commit(self.objects_dir(), commit_hash)
+                target_tree = load_tree(self.objects_dir(), commit.tree_hash)
+            except Exception as e:
+                msg = f'Failed to load commit {commit_hash}'
+                raise RepositoryError(msg) from e
 
-        if isinstance(resolved_ref, SymRef) and str(resolved_ref).startswith(f'{HEADS_DIR}/'):
-            write_ref(self.head_file(), resolved_ref)
-            return
+        apply_diffs(diffs, self.working_dir, self.objects_dir(), target_tree)
 
-        commit_hash = self.resolve_ref(resolved_ref)
-        if commit_hash is None:
-            msg = f'Cannot resolve commit for checkout target {target}'
-            raise RepositoryError(msg)
-        write_ref(self.head_file(), commit_hash)
+        match resolved_ref:
+            case SymRef():
+                write_ref(self.head_file(), resolved_ref)
+            case HashRef() | TagRef():
+                commit_hash = self.resolve_ref(resolved_ref)
+                if commit_hash is None:
+                    msg = f'Cannot resolve commit for checkout target {target}'
+                    raise RepositoryError(msg)
+                write_ref(self.head_file(), commit_hash)
 
 def branch_ref(branch: str) -> SymRef:
     """Create a symbolic reference for a branch name.
 
     :param branch: The name of the branch.
-    :return: A SymRef object representing the branch reference."""
+    :return: A SymRef object representing the branch reference.
+    """
     return SymRef(f'{HEADS_DIR}/{branch}')
 
 
@@ -939,5 +821,6 @@ def tag_ref(tag: str) -> TagRef:
     """Create a tag reference for a tag name.
 
     :param tag: The name of the tag.
-    :return: A TagRef object representing the tag reference."""
+    :return: A TagRef object representing the tag reference.
+    """
     return TagRef(f'{TAGS_DIR}/{tag}')
