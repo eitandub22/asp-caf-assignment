@@ -1,6 +1,7 @@
 import shutil
 
 import pytest
+from libcaf.checkout import MissingMovedFromError
 from libcaf.exceptions import RepositoryError
 from libcaf.repository import HashRef, Repository, branch_ref
 
@@ -53,10 +54,11 @@ def test_checkout_detached_head_commit(temp_repo: Repository) -> None:
     commit_1 = temp_repo.commit_working_dir('User', 'v1')
 
     (temp_repo.working_dir / 'g.txt').write_text('v2')
-    commit_2 = temp_repo.commit_working_dir('User', 'v2')
+    temp_repo.commit_working_dir('User', 'v2')
     temp_repo.checkout(str(commit_1))
 
     assert (temp_repo.working_dir / 'f.txt').read_text() == 'v1'
+    assert not (temp_repo.working_dir / 'g.txt').exists()
 
     assert temp_repo.head_ref() == commit_1
     assert isinstance(temp_repo.head_ref(), HashRef)
@@ -96,7 +98,7 @@ def test_checkout_modification_and_directory(temp_repo: Repository) -> None:
     new_dir.mkdir()
     (new_dir / 'deep.txt').write_text('deep')
 
-    commit_2 = temp_repo.commit_working_dir('User', 'State 2')
+    temp_repo.commit_working_dir('User', 'State 2')
 
     assert root_file.read_text() == 'root v2'
     assert not sub_dir.exists()
@@ -135,8 +137,8 @@ def test_checkout_ambiguous_ref(temp_repo: Repository) -> None:
     (temp_repo.working_dir / 'f.txt').write_text('base')
     c1 = temp_repo.commit_working_dir('User', 'base')
 
-    temp_repo.add_branch("release")
-    temp_repo.update_ref(branch_ref("release"), c1)
+    temp_repo.add_branch('release')
+    temp_repo.update_ref(branch_ref('release'), c1)
 
     (temp_repo.working_dir / 'f.txt').write_text('advanced')
     c2 = temp_repo.commit_working_dir('User', 'advanced')
@@ -169,33 +171,93 @@ def test_checkout_modifies_deeply_nested_file(temp_repo: Repository) -> None:
 def test_checkout_mixed_operations(temp_repo: Repository) -> None:
     """Test a commit that includes Adds, Removes, Mods, and Moves simultaneously."""
     wd = temp_repo.working_dir
-    
-    # Setup v1
-    (wd / "modify_me.txt").write_text("v1")
-    (wd / "delete_me.txt").write_text("gone soon")
-    (wd / "move_me.txt").write_text("move content")
-    c1 = temp_repo.commit_working_dir("User", "v1")
 
-    # Create v2 changes
-    (wd / "modify_me.txt").write_text("v2")      # Modify
-    (wd / "delete_me.txt").unlink()              # Remove
-    shutil.move(str(wd / "move_me.txt"), str(wd / "moved.txt")) # Move
-    (wd / "add_me.txt").write_text("new")        # Add
+    (wd / 'modify_me.txt').write_text('v1')
+    (wd / 'delete_me.txt').write_text('gone soon')
+    (wd / 'move_me.txt').write_text('move content')
+    c1 = temp_repo.commit_working_dir('User', 'v1')
 
-    c2 = temp_repo.commit_working_dir("User", "v2")
+    (wd / 'modify_me.txt').write_text('v2')
+    (wd / 'delete_me.txt').unlink()
+    shutil.move(str(wd / 'move_me.txt'), str(wd / 'moved.txt'))
+    (wd / 'add_me.txt').write_text('new')
+
+    c2 = temp_repo.commit_working_dir('User', 'v2')
 
     # Go back to v1
     temp_repo.checkout(str(c1))
-    
-    assert (wd / "modify_me.txt").read_text() == "v1"
-    assert (wd / "delete_me.txt").exists()
-    assert (wd / "move_me.txt").exists()
-    assert not (wd / "add_me.txt").exists()
+
+    assert (wd / 'modify_me.txt').read_text() == 'v1'
+    assert (wd / 'delete_me.txt').exists()
+    assert (wd / 'move_me.txt').exists()
+    assert not (wd / 'add_me.txt').exists()
 
     # Go to v2
     temp_repo.checkout(str(c2))
-    
-    assert (wd / "modify_me.txt").read_text() == "v2"
-    assert not (wd / "delete_me.txt").exists()
-    assert (wd / "moved.txt").exists()
-    assert (wd / "add_me.txt").exists()
+
+    assert (wd / 'modify_me.txt').read_text() == 'v2'
+    assert not (wd / 'delete_me.txt').exists()
+    assert (wd / 'moved.txt').exists()
+    assert (wd / 'add_me.txt').exists()
+
+def test_checkout_fails_on_non_existent_ref(temp_repo: Repository) -> None:
+    """Test that checkout raises RepositoryError when the target reference (branch/tag/hash) does not exist."""
+    (temp_repo.working_dir / 'file.txt').write_text('v1')
+    temp_repo.commit_working_dir('User', 'Commit 1')
+
+    target = 'ghost-branch'
+
+    with pytest.raises(RepositoryError):
+        temp_repo.checkout(target)
+
+def test_checkout_deep_nested_move(temp_repo: Repository) -> None:
+    """Test moving a file between two deep, unrelated directory structures."""
+    src = temp_repo.working_dir / 'a' / 'b' / 'c' / 'source.txt'
+    src.parent.mkdir(parents=True)
+    src.write_text('deep content')
+    commit_1 = temp_repo.commit_working_dir('User', 'v1')
+
+    dst = temp_repo.working_dir / 'x' / 'y' / 'z' / 'dest.txt'
+    dst.parent.mkdir(parents=True)
+
+    shutil.move(str(src), str(dst))
+    shutil.rmtree(temp_repo.working_dir / 'a')
+
+    commit_2 = temp_repo.commit_working_dir('User', 'v2')
+
+    temp_repo.checkout(str(commit_1))
+    assert src.exists()
+    assert not dst.exists()
+
+    temp_repo.checkout(str(commit_2))
+
+    assert dst.exists()
+    assert dst.read_text() == 'deep content'
+    assert not src.exists()
+
+def test_checkout_move_out_of_deleted_directory(temp_repo: Repository) -> None:
+    """Test moving a file out of a directory that is simultaneously being deleted.
+
+    Verifies that 'src/' is not blindly deleted before 'src/file.txt' is moved.
+    """
+    src_dir = temp_repo.working_dir / 'src'
+    src_dir.mkdir()
+    file_src = src_dir / 'file.txt'
+    file_src.write_text('precious data')
+
+    commit_1 = temp_repo.commit_working_dir('User', 'Init src')
+
+    file_dst = temp_repo.working_dir / 'file.txt'
+    shutil.move(str(file_src), str(file_dst))
+    shutil.rmtree(src_dir)
+
+    commit_2 = temp_repo.commit_working_dir('User', 'Move out and delete src')
+
+    temp_repo.checkout(str(commit_1))
+    assert file_src.exists()
+
+    temp_repo.checkout(str(commit_2))
+
+    assert not src_dir.exists()
+    assert file_dst.exists()
+    assert file_dst.read_text() == 'precious data'

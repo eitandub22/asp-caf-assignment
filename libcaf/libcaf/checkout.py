@@ -24,13 +24,19 @@ class MissingMovedFromError(Exception):
 class MoveError(Exception):
     """Exception raised when a move operation fails."""
 
+class RemoveError(Exception):
+    """Exception raised when a remove operation fails."""
+
+class WriteError(Exception):
+    """Exception raised when a write operation fails."""
+
 
 def read_object_bytes(objects_dir: Path, hash_value: str) -> bytes:
     """Read the bytes of an object from the object store."""
     with open_content_for_reading(objects_dir, hash_value) as f:
         return f.read()
 
-def rewrite_modified_file(working_dir: Path, objects_dir: Path, target_path: Path, target_tree: Tree) -> None:
+def rewrite_modified_file(working_dir: Path, objects_dir: Path, target_path: Path, target_tree: Tree | None) -> None:
     """Find the correct blob in the target tree and rewrite the file at target_path.
 
     :param working_dir: The root of the working directory.
@@ -40,8 +46,12 @@ def rewrite_modified_file(working_dir: Path, objects_dir: Path, target_path: Pat
     """
     try:
         rel_path = target_path.relative_to(working_dir)
-    except ValueError:
+    except OSError as err:
         msg = f'Target path {target_path} is not inside working directory {working_dir}'
+        raise TraversalError(msg) from err
+
+    if target_tree is None:
+        msg = f'Target tree is None when trying to rewrite file: {target_path}'
         raise TraversalError(msg)
 
     current_tree = target_tree
@@ -52,11 +62,7 @@ def rewrite_modified_file(working_dir: Path, objects_dir: Path, target_path: Pat
             raise TraversalError(msg)
         current_tree = load_tree(objects_dir, record.hash)
 
-    leaf = rel_path.parts[-1]
-    if leaf is None:
-        msg = f'Invalid target path: {target_path}'
-        raise TraversalError(msg)
-    record = current_tree.records.get(leaf)
+    record = current_tree.records.get(rel_path.parts[-1])
     if record is None or record.type != TreeRecordType.BLOB:
         msg = f'Path does not resolve to a file: {target_path}'
         raise TraversalError(msg)
@@ -77,64 +83,139 @@ def get_moved_to_path(diff: MovedToDiff) -> Path:
         curr = curr.parent
     return Path(*reversed(parts))
 
-def apply_diffs(diffs: Sequence[Diff], working_dir: Path, objects_dir: Path, target_tree: Tree) -> None:
+def move_sort_key(item: tuple[MovedFromDiff, Path]) -> int:
+    """Sort key for move operations based on the depth of the moved-to path."""
+    return len(get_moved_to_path(item[0].moved_from).parts)
+
+def traverse_post_order(diffs: Sequence[Diff], cwd: Path,
+                        moves: list[tuple[MovedFromDiff, Path]],
+                        removals: list[tuple[RemovedDiff, Path]],
+                        writes: list[tuple[Diff, Path]]) -> None:
+    """Traverse diffs in post-order and categorize them into moves, removals, and writes."""
+    stack = [(d, cwd / d.record.name) for d in reversed(diffs)]
+
+    while stack:
+        node, path = stack.pop()
+
+        match node:
+            case AddedDiff() | ModifiedDiff():
+                writes.append((node, path))
+            case RemovedDiff():
+                removals.append((node, path))
+            case MovedFromDiff():
+                if node.moved_from:
+                    moves.append((node, path))
+            case _:
+                pass
+
+        # Push children to stack in reverse order to ensure Pre-order popping
+        if node.children:
+            stack.extend(
+                (child, path / child.record.name) for child in reversed(node.children)
+            )
+    return moves, removals, writes
+
+
+def apply_diffs(diffs: Sequence[Diff], working_dir: Path, objects_dir: Path, target_tree: Tree | None) -> None:
     """Apply a sequence of diffs to the working directory.
 
     :param diffs: The sequence of Diff objects to apply.
-    :raises RepositoryError: If applying any of the diffs fails.
+    :param working_dir: The root of the working directory.
+    :param objects_dir: The directory where objects are stored.
+    :param target_tree: The root tree of the target commit.
+    :raises TraversalError: If resolving paths within the target tree fails.
+    :raises MissingMovedFromError: If a move operation refers to a missing source path.
+    :raises MoveError: If a move operation in the working directory fails.
+    :raises RemoveError: If a removal operation in the working directory fails.
+    :raises WriteError: If writing a file to the working directory fails.
     """
     cwd = working_dir
-    stack = [(diff, cwd / diff.record.name) for diff in reversed(diffs)]
 
-    while stack:
-        current_diff, curr_path = stack.pop()
+    moves: list[tuple[MovedFromDiff, Path]] = []
+    removals: list[tuple[RemovedDiff, Path]] = []
+    writes: list[tuple[Diff, Path]] = []
 
-        match current_diff:
-            case AddedDiff():
-                if current_diff.record.type == TreeRecordType.TREE:
-                    curr_path.mkdir(parents=True, exist_ok=True)
-                else:
-                    curr_path.parent.mkdir(parents=True, exist_ok=True)
-                    curr_path.write_bytes(read_object_bytes(objects_dir, current_diff.record.hash))
+    traverse_post_order(diffs, cwd, moves, removals, writes)
 
-            case RemovedDiff():
-                if curr_path.exists():
-                    if curr_path.is_dir():
-                        has_moves = any(isinstance(c, MovedToDiff) for c in current_diff.children)
-                        if not has_moves:
-                            shutil.rmtree(curr_path)
-                            continue
-                    else:
-                        curr_path.unlink()
+    # Process moves first to avoid conflicts with removals and writes.
+    # Handle shallowest moves first to ensure parent directories exist for deeper moves.
+    handle_moves(moves, cwd)
 
-            case ModifiedDiff():
-                if current_diff.record.type == TreeRecordType.TREE:
-                    curr_path.mkdir(parents=True, exist_ok=True)
-                else:
-                    rewrite_modified_file(working_dir, objects_dir, curr_path, target_tree)
+    # Process removals - deepest first.
+    # This prevents erroring on a child file after its parent dir is removed.
+    handle_removals(removals)
 
-            case MovedFromDiff():
-                moved_from = current_diff.moved_from
-                if moved_from is None:
-                    continue
+    # Process writes (Additions & Modifications)
+    # No sorting required - 'writes' is already in Pre-order.
+    handle_writes(writes, cwd, objects_dir, target_tree)
 
-                old_path = working_dir / get_moved_to_path(moved_from)
 
-                if not old_path.exists():
-                    msg = f'Cannot move missing path: {old_path.relative_to(working_dir)}'
-                    raise MissingMovedFromError(msg)
+def handle_writes(writes: list[tuple[Diff, Path]], cwd: Path, objects_dir: Path, target_tree: Tree | None) -> None:
+    """Handle write operations for additions and modifications.
 
-                curr_path.parent.mkdir(parents=True, exist_ok=True)
+    :param writes: List of tuples containing Diff nodes and their target paths.
+    :param cwd: The root of the working directory.
+    :param objects_dir: The directory where objects are stored.
+    :param target_tree: The root tree of the target commit.
+    :raises WriteError: If writing a file to the working directory fails.
+    """
+    for node, path in writes:
+        if node.record.type == TreeRecordType.TREE:
+            path.mkdir(parents=True, exist_ok=True)
 
+        elif node.record.type == TreeRecordType.BLOB:
+            path.parent.mkdir(parents=True, exist_ok=True)
+
+            if isinstance(node, AddedDiff):
                 try:
-                    shutil.move(str(old_path), str(curr_path))
-                except Exception as e:
-                    msg = f'Failed to move {old_path.relative_to(working_dir)} to {curr_path.relative_to(working_dir)}'
-                    raise MoveError(msg) from e
+                    path.write_bytes(read_object_bytes(objects_dir, node.record.hash))
+                except OSError as e:
+                    msg = f'Failed to write file {path}'
+                    raise WriteError(msg) from e
+            elif isinstance(node, ModifiedDiff):
+                rewrite_modified_file(cwd, objects_dir, path, target_tree)
 
-            case MovedToDiff():
-                # Handled in MovedFromDiff so we don't process moves twice
-                pass
+def handle_removals(removals: list[tuple[RemovedDiff, Path]]) -> None:
+    """Handle removal operations.
 
-        for diff in reversed(current_diff.children):
-            stack.append((diff, curr_path / diff.record.name))
+    :param removals: List of tuples containing RemovedDiff nodes and their target paths.
+    :param cwd: The root of the working directory.
+    :raises RemoveError: If a removal operation in the working directory fails.
+    """
+    removals.sort(key=lambda x: len(x[1].parts), reverse=True)
+
+    for _, path in removals:
+        if not path.exists():
+            continue
+        try:
+            if path.is_dir():
+                shutil.rmtree(path)
+            else:
+                path.unlink()
+        except Exception as e:
+            msg = f'Failed to remove {path}'
+            raise RemoveError(msg) from e
+
+def handle_moves(moves: list[tuple[MovedFromDiff, Path]], cwd: Path) -> None:
+    """Handle move operations.
+
+    :param moves: List of tuples containing MovedFromDiff nodes and their target paths.
+    :param cwd: The root of the working directory.
+    :raises MoveError: If a move operation in the working directory fails.
+    """
+    moves.sort(key=move_sort_key)
+
+    for node, dest_path in moves:
+        src_rel = get_moved_to_path(node.moved_from)
+        src_path = cwd / src_rel
+
+        if not src_path.exists():
+            msg = f'Cannot move missing path: {src_rel}'
+            raise MissingMovedFromError(msg)
+
+        dest_path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            shutil.move(str(src_path), str(dest_path))
+        except Exception as e:
+            msg = f'Failed to move {src_rel} to {dest_path}'
+            raise MoveError(msg) from e

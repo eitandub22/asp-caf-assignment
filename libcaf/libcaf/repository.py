@@ -204,7 +204,7 @@ class Repository:
     def resolve_ref(self, ref: Ref | str | None) -> HashRef | None:
         """Resolve a reference to a HashRef, following symbolic references if necessary.
 
-        :param ref: The reference to resolve. This can be a HashRef, SymRef, or a string.
+        :param ref: The reference to resolve. This can be a HashRef, SymRef, string or a TagRef.
         :return: The resolved HashRef or None if the reference does not exist.
         :raises RefError: If the reference is invalid or cannot be resolved.
         :raises RepositoryNotFoundError: If the repository does not exist.
@@ -220,12 +220,13 @@ class Repository:
                 return self.resolve_ref(resolved)
             case TagRef(ref):
                 resolved = read_ref(self.refs_dir() / ref)
-                if resolved:
-                    try:
-                        tag = load_tag(self.objects_dir(), resolved)
-                    except Exception as e:
-                        msg = f'Failed to load tag object for reference: {ref}'
-                        raise TagError(msg) from e
+                if not resolved:
+                    return None
+                try:
+                    tag = load_tag(self.objects_dir(), resolved)
+                except Exception as e:
+                    msg = f'Failed to load tag object for reference: {ref}'
+                    raise TagError(msg) from e
                 return self.resolve_ref(tag.commit_hash)
             case str():
                 # Try to figure out what kind of ref it is by looking at the list of refs
@@ -729,7 +730,11 @@ class Repository:
 
     @requires_repo
     def status(self) -> Sequence[Diff]:
-        """Get the status of the working directory compared to the current HEAD commit."""
+        """Get the status of the working directory compared to the current HEAD commit.
+
+        :return: A sequence of :class:`Diff` objects describing changes in the working directory.
+        :raises RepositoryNotFoundError: If the repository does not exist.
+        """
         return self.diff(self.head_commit(), self.working_dir)
 
     def _parse_ref(self, target: str) -> Ref | None:
@@ -755,7 +760,7 @@ class Repository:
             return TagRef(target) if target.startswith(f'{TAGS_DIR}/') else SymRef(target)
 
         if self.branch_exists(SymRef(target)):
-           return branch_ref(target)
+            return branch_ref(target)
 
         if self.tag_exists(TagRef(target)):
             return tag_ref(target)
@@ -765,9 +770,9 @@ class Repository:
 
     @requires_repo
     def checkout(self, target: str) -> None:
-        """Checkout a target (commit or branch) into the working directory.
+        """Checkout a target (commit, branch or tag) into the working directory.
 
-        :param target: The target to checkout. Can be a commit hash or a branch name
+        :param target: The target to checkout. Can be a commit hash, a branch name or a tag name.
         :raises RepositoryError: If the target cannot be resolved or if the checkout fails.
         :raises RepositoryNotFoundError: If the repository does not exist.
         """
@@ -784,6 +789,7 @@ class Repository:
 
         diffs = self.diff(self.head_commit(), resolved_ref)
         target_tree: Tree | None = None
+        # If there are modified files, we need to load the target tree so we can read the new file content
         if any(isinstance(diff, ModifiedDiff) for diff in diffs):
             commit_hash = self.resolve_ref(resolved_ref)
             if commit_hash is None:
