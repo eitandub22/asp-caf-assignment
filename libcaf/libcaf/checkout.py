@@ -66,7 +66,7 @@ def rewrite_modified_file(working_dir: Path, objects_dir: Path, target_path: Pat
     if record is None or record.type != TreeRecordType.BLOB:
         msg = f'Path does not resolve to a file: {target_path}'
         raise TraversalError(msg)
-    target_path.parent.mkdir(parents=True, exist_ok=True)
+    target_path.parent.mkdir(parents=False, exist_ok=True)
     target_path.write_bytes(read_object_bytes(objects_dir, record.hash))
 
 def get_moved_to_path(diff: MovedToDiff) -> Path:
@@ -161,10 +161,10 @@ def handle_writes(writes: list[tuple[Diff, Path]], cwd: Path, objects_dir: Path,
     """
     for node, path in writes:
         if node.record.type == TreeRecordType.TREE:
-            path.mkdir(parents=True, exist_ok=True)
+            path.mkdir(parents=False, exist_ok=True)
 
         elif node.record.type == TreeRecordType.BLOB:
-            path.parent.mkdir(parents=True, exist_ok=True)
+            path.parent.mkdir(parents=False, exist_ok=True)
 
             if isinstance(node, AddedDiff):
                 try:
