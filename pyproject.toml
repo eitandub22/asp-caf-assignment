@@ -47,6 +47,7 @@ addopts = ['--verbose']
 [tool.ruff]
 line-length = 120
 exclude = ['libcaf/_libcaf.pyi']
+per-file-ignores = { "tests/**/*.py" = ["S101"] }
 
 [tool.ruff.lint]
 select = ['ALL']
