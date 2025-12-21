@@ -573,7 +573,7 @@ class Repository:
 
                     # If the record is a tree, we need to recursively compare the trees
                     if record1.type == TreeRecordType.TREE and record2.type == TreeRecordType.TREE:
-                        subtree_diff = ModifiedDiff(record1, parent_diff, [])
+                        subtree_diff = ModifiedDiff(record2, parent_diff, [])
 
                         try:
                             tree1 = self._load_tree(record1.hash, tree_hashes)
@@ -585,7 +585,17 @@ class Repository:
                         stack.append((tree1, tree2, subtree_diff))
                         parent_diff.children.append(subtree_diff)
                     else:
-                        modified_diff = ModifiedDiff(record1, parent_diff, [])
+                        modified_diff = ModifiedDiff(record2, parent_diff, [])
+
+                        # If the original record was a blob and the new record is a tree,
+                        # we need to load the subtree for the diff.
+                        if record2.type == TreeRecordType.TREE:
+                            try:
+                                stack.append((None, self._load_tree(record2.hash, tree_hashes), modified_diff))
+                            except Exception as e:
+                                msg = 'Error loading subtree for diff'
+                                raise RepositoryError(msg) from e
+
                         parent_diff.children.append(modified_diff)
 
             for name, record2 in records2.items():
@@ -788,21 +798,7 @@ class Repository:
             raise RepositoryError(msg)
 
         diffs = self.diff(self.head_commit(), resolved_ref)
-        target_tree: Tree | None = None
-        # If there are modified files, we need to load the target tree so we can read the new file content
-        if any(isinstance(diff, ModifiedDiff) for diff in diffs):
-            commit_hash = self.resolve_ref(resolved_ref)
-            if commit_hash is None:
-                msg = f'Cannot resolve reference {resolved_ref}'
-                raise RefError(msg)
-            try:
-                commit = load_commit(self.objects_dir(), commit_hash)
-                target_tree = load_tree(self.objects_dir(), commit.tree_hash)
-            except Exception as e:
-                msg = f'Failed to load commit {commit_hash}'
-                raise RepositoryError(msg) from e
-
-        apply_diffs(diffs, self.working_dir, self.objects_dir(), target_tree)
+        apply_diffs(diffs, self.working_dir, self.objects_dir())
 
         match resolved_ref:
             case SymRef():

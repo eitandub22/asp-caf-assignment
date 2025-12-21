@@ -261,3 +261,50 @@ def test_checkout_move_out_of_deleted_directory(temp_repo: Repository) -> None:
     assert not src_dir.exists()
     assert file_dst.exists()
     assert file_dst.read_text() == 'precious data'
+
+def test_checkout_type_swaps(temp_repo: Repository) -> None:
+    """Test replacing a file with a directory and vice versa."""
+    wd = temp_repo.working_dir
+
+    # --- Commit 1: Setup initial types ---
+    # f2d: Starts as File, will become Directory
+    # d2f: Starts as Directory, will become File
+    (wd / 'f2d').write_text('I am a file')
+    (wd / 'd2f').mkdir()
+    (wd / 'd2f' / 'inside.txt').write_text('content')
+
+    commit_1 = temp_repo.commit_working_dir('User', 'State 1')
+
+    # --- Commit 2: Swap types ---
+    (wd / 'f2d').unlink()
+    (wd / 'f2d').mkdir()
+    (wd / 'f2d' / 'new_inside.txt').write_text('nested content')
+
+    shutil.rmtree(wd / 'd2f')
+    (wd / 'd2f').write_text('I am now a file')
+
+    commit_2 = temp_repo.commit_working_dir('User', 'State 2')
+
+    # --- Verification 1: Switch to State 1 (Reset) ---
+    temp_repo.checkout(str(commit_1))
+    assert (wd / 'f2d').is_file()
+    assert (wd / 'd2f').is_dir()
+    assert (wd / 'd2f' / 'inside.txt').exists()
+
+    # --- Verification 2: Switch to State 2 (The Swap) ---
+    # This proves Removals happen before Writes.
+    # If Writes happened first, (wd/'d2f').write_text() would fail because 'd2f' is still a dir.
+    temp_repo.checkout(str(commit_2))
+
+    assert (wd / 'f2d').is_dir()
+    assert (wd / 'f2d' / 'new_inside.txt').read_text() == 'nested content'
+
+    assert (wd / 'd2f').is_file()
+    assert (wd / 'd2f').read_text() == 'I am now a file'
+
+    # --- Verification 3: Switch back to State 1 (Revert) ---
+    temp_repo.checkout(str(commit_1))
+
+    assert (wd / 'f2d').is_file()
+    assert (wd / 'f2d').read_text() == 'I am a file'
+    assert (wd / 'd2f').is_dir()
