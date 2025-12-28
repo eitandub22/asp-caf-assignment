@@ -392,13 +392,14 @@ def checkout(**kwargs) -> int:
     try:
         match repo.checkout(ref):
             case SymRef():
-                _print_success(f'Switched to branch {ref}.')
+                _print_success(f"Switched to branch '{ref}'.")
                 return 0
-            case HashRef():
-                _print_success(f'Note: switching to {ref}.')
-                _print_success('You are in "detached HEAD" state. You can look around, make experimental changes and '
-                               'commit them, and you can discard any commits you make in this state without impacting'
-                               ' any branches by switching back to a branch.')
+            case HashRef(commit_hash):
+                _print_success(f"Note: switching to '{ref}'.")
+                _print_success("You are in 'detached HEAD' state. You can look around, make experimental changes and "
+                               "commit them, and you can discard any commits you make in this state without impacting"
+                               " any branches by switching back to a branch.")
+                _print_success(f'HEAD is now at {commit_hash}.')
                 return 0
             case _:
                 _print_error('Unknown reference type after checkout.')

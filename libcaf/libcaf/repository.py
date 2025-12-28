@@ -790,7 +790,7 @@ class Repository:
 
 
     @requires_repo
-    def checkout(self, target: str) -> Ref | HashRef:
+    def checkout(self, target: str) -> Ref:
         """Checkout a target (commit, branch or tag) into the working directory.
 
         :param target: The target to checkout. Can be a commit hash, a branch name or a tag name.
