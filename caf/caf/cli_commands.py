@@ -6,10 +6,11 @@ from datetime import datetime
 from pathlib import Path
 
 from libcaf.constants import DEFAULT_BRANCH
+from libcaf.exceptions import RepositoryError, RepositoryNotFoundError, TagExistsError, TagNotFound, UnknownHashError
 from libcaf.plumbing import hash_file as plumbing_hash_file
-from libcaf.ref import SymRef
-from libcaf.repository import (AddedDiff, Diff, ModifiedDiff, MovedToDiff, RemovedDiff, Repository)
-from libcaf.exceptions import TagNotFound, TagExistsError, UnknownHashError, RepositoryError, RepositoryNotFoundError
+from libcaf.ref import HashRef, SymRef
+from libcaf.repository import AddedDiff, Diff, ModifiedDiff, MovedToDiff, RemovedDiff, Repository
+
 
 def _print_error(message: str) -> None:
     print(f'❌ Error: {message}', file=sys.stderr)
@@ -232,7 +233,7 @@ def diff(**kwargs) -> int:
         if not diffs:
             _print_success('No changes detected between commits.')
             return 0
-        
+
         _print_success('Diff:\n')
 
         _print_diffs([(diffs, 0)])
@@ -307,7 +308,7 @@ def delete_tag(**kwargs) -> int:
     if not tag_name:
         _print_error('Tag name is required.')
         return -1
-    
+
     try:
         repo.delete_tag(tag_name)
         _print_success(f'Tag {tag_name} deleted.')
@@ -329,15 +330,15 @@ def create_tag(**kwargs) -> int:
     if not tag_name:
         _print_error('Tag name is required.')
         return -1
-    
+
     if not commit_hash:
         _print_error('Commit hash is required.')
         return -1
-    
+
     if not author:
         _print_error('Author is required.')
         return -1
-    
+
     if not message:
         _print_error('Message is required.')
         return -1
@@ -370,7 +371,7 @@ def status(**kwargs) -> int:
         if not status:
             _print_success('nothing to commit, working tree clean.')
             return 0
-        
+
         _print_success('Changes not yet committed:\n')
 
         _print_diffs([(status, 0)])
@@ -378,4 +379,33 @@ def status(**kwargs) -> int:
         return 0
     except RepositoryNotFoundError:
         _print_error(f'No repository found at {repo.repo_path()}')
+        return -1
+
+def checkout(**kwargs) -> int:
+    repo = _repo_from_cli_kwargs(kwargs)
+    ref = kwargs.get('ref')
+
+    if not ref:
+        _print_error('Reference (branch, tag, or commit) is required to checkout.')
+        return -1
+
+    try:
+        match repo.checkout(ref):
+            case SymRef():
+                _print_success(f'Switched to branch {ref}.')
+                return 0
+            case HashRef():
+                _print_success(f'Note: switching to {ref}.')
+                _print_success('You are in "detached HEAD" state. You can look around, make experimental changes and '
+                               'commit them, and you can discard any commits you make in this state without impacting'
+                               ' any branches by switching back to a branch.')
+                return 0
+            case _:
+                _print_error('Unknown reference type after checkout.')
+                return -1
+    except RepositoryNotFoundError:
+        _print_error(f'No repository found at {repo.repo_path()}')
+        return -1
+    except RepositoryError as e:
+        _print_error(f'Repository error: {e}')
         return -1
