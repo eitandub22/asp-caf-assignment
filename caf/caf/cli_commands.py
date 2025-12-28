@@ -263,7 +263,7 @@ def _print_diffs(diff_stack: MutableSequence[tuple[Sequence[Diff], int]]) -> Non
             match diff:
                 case AddedDiff(record, _, _):
                     print(f'Added: {record.name}')
-                case ModifiedDiff(record, _, _):
+                case ModifiedDiff(record, _, _, _):
                     print(f'Modified: {record.name}')
                 case MovedToDiff(record, _, _, moved_to):
                     assert moved_to is not None, 'MovedToDiff must have a moved_to record, this is a bug!'
