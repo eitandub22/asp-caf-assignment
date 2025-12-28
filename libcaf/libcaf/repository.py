@@ -573,7 +573,7 @@ class Repository:
 
                     # If the record is a tree, we need to recursively compare the trees
                     if record1.type == TreeRecordType.TREE and record2.type == TreeRecordType.TREE:
-                        subtree_diff = ModifiedDiff(record2, parent_diff, [])
+                        subtree_diff = ModifiedDiff(record2, parent_diff, [], record1)
 
                         try:
                             tree1 = self._load_tree(record1.hash, tree_hashes)
@@ -585,7 +585,7 @@ class Repository:
                         stack.append((tree1, tree2, subtree_diff))
                         parent_diff.children.append(subtree_diff)
                     else:
-                        modified_diff = ModifiedDiff(record2, parent_diff, [])
+                        modified_diff = ModifiedDiff(record2, parent_diff, [], record1)
 
                         # If the original record was a blob and the new record is a tree,
                         # we need to load the subtree for the diff.

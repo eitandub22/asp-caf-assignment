@@ -30,56 +30,6 @@ class RemoveError(Exception):
 class WriteError(Exception):
     """Exception raised when a write operation fails."""
 
-def get_moved_to_path(diff: MovedToDiff) -> Path:
-    """Get the new path for a moved-to diff.
-
-    :param diff: The MovedToDiff object.
-    :return: The new path as a Path object.
-    """
-    parts = []
-    curr = diff
-    while curr and curr.parent:
-        if curr.record.name:
-            parts.append(curr.record.name)
-        curr = curr.parent
-    return Path(*reversed(parts))
-
-def traverse_pre_order(diffs: Sequence[Diff], cwd: Path,
-                        moves: list[tuple[MovedFromDiff, Path]],
-                        removals: list[tuple[RemovedDiff, Path]],
-                        writes: list[tuple[Diff, Path]]) -> None:
-    """Traverse diffs in pre-order and categorize them into moves, removals, and writes.
-
-    :param diffs: The sequence of Diff objects to traverse.
-    :param cwd: The root of the working directory.
-    :param moves: List to collect move operations.
-    :param removals: List to collect removal operations.
-    :param writes: List to collect write operations.
-    """
-    stack = [(d, cwd / d.record.name) for d in reversed(diffs)]
-
-    while stack:
-        node, path = stack.pop()
-
-        match node:
-            case AddedDiff() | ModifiedDiff():
-                writes.append((node, path))
-            case RemovedDiff():
-                removals.append((node, path))
-            case MovedFromDiff():
-                if node.moved_from:
-                    moves.append((node, path))
-            case _:
-                pass
-
-        # Push children to stack in reverse order to ensure Pre-order popping
-        if node.children:
-            stack.extend(
-                (child, path / child.record.name) for child in reversed(node.children)
-            )
-    return moves, removals, writes
-
-
 def apply_diffs(diffs: Sequence[Diff], working_dir: Path, objects_dir: Path) -> None:
     """Apply a sequence of diffs to the working directory.
 
@@ -98,19 +48,19 @@ def apply_diffs(diffs: Sequence[Diff], working_dir: Path, objects_dir: Path) -> 
     removals: list[tuple[RemovedDiff, Path]] = []
     writes: list[tuple[Diff, Path]] = []
 
-    traverse_pre_order(diffs, cwd, moves, removals, writes)
+    _traverse_pre_order(diffs, cwd, moves, removals, writes)
 
     # Process moves first to avoid conflicts with removals and writes.
-    handle_moves(moves, cwd)
+    _handle_moves(moves, cwd)
 
-    handle_removals(removals)
+    _handle_removals(removals)
 
     # Process writes (Additions & Modifications)
     # No sorting required - 'writes' is already in Pre-order.
-    handle_writes(writes, objects_dir)
+    _handle_writes(writes, objects_dir)
 
 
-def handle_writes(writes: list[tuple[Diff, Path]], objects_dir: Path) -> None:
+def _handle_writes(writes: list[tuple[Diff, Path]], objects_dir: Path) -> None:
     """Handle write operations for additions and modifications.
 
     :param writes: List of tuples containing Diff nodes and their target paths.
@@ -147,7 +97,7 @@ def handle_writes(writes: list[tuple[Diff, Path]], objects_dir: Path) -> None:
                 msg = f'Failed to write file {path}'
                 raise WriteError(msg) from e
 
-def handle_removals(removals: list[tuple[RemovedDiff, Path]]) -> None:
+def _handle_removals(removals: list[tuple[RemovedDiff, Path]]) -> None:
     """Handle removal operations.
 
     :param removals: List of tuples containing RemovedDiff nodes and their target paths.
@@ -167,7 +117,7 @@ def handle_removals(removals: list[tuple[RemovedDiff, Path]]) -> None:
             msg = f'Failed to remove {path}'
             raise RemoveError(msg) from e
 
-def handle_moves(moves: list[tuple[MovedFromDiff, Path]], cwd: Path) -> None:
+def _handle_moves(moves: list[tuple[MovedFromDiff, Path]], cwd: Path) -> None:
     """Handle move operations.
 
     :param moves: List of tuples containing MovedFromDiff nodes and their target paths.
@@ -175,7 +125,7 @@ def handle_moves(moves: list[tuple[MovedFromDiff, Path]], cwd: Path) -> None:
     :raises MoveError: If a move operation in the working directory fails.
     """
     for node, dest_path in moves:
-        src_rel = get_moved_to_path(node.moved_from)
+        src_rel = _get_moved_to_path(node.moved_from)
         src_path = cwd / src_rel
 
         if not src_path.exists():
@@ -188,3 +138,52 @@ def handle_moves(moves: list[tuple[MovedFromDiff, Path]], cwd: Path) -> None:
         except Exception as e:
             msg = f'Failed to move {src_rel} to {dest_path}'
             raise MoveError(msg) from e
+
+def _get_moved_to_path(diff: MovedToDiff) -> Path:
+    """Get the new path for a moved-to diff.
+
+    :param diff: The MovedToDiff object.
+    :return: The new path as a Path object.
+    """
+    parts = []
+    curr = diff
+    while curr and curr.parent:
+        if curr.record.name:
+            parts.append(curr.record.name)
+        curr = curr.parent
+    return Path(*reversed(parts))
+
+def _traverse_pre_order(diffs: Sequence[Diff], cwd: Path,
+                        moves: list[tuple[MovedFromDiff, Path]],
+                        removals: list[tuple[RemovedDiff, Path]],
+                        writes: list[tuple[Diff, Path]]) -> None:
+    """Traverse diffs in pre-order and categorize them into moves, removals, and writes.
+
+    :param diffs: The sequence of Diff objects to traverse.
+    :param cwd: The root of the working directory.
+    :param moves: List to collect move operations.
+    :param removals: List to collect removal operations.
+    :param writes: List to collect write operations.
+    """
+    stack = [(d, cwd / d.record.name) for d in reversed(diffs)]
+
+    while stack:
+        node, path = stack.pop()
+
+        match node:
+            case AddedDiff() | ModifiedDiff():
+                writes.append((node, path))
+            case RemovedDiff():
+                removals.append((node, path))
+            case MovedFromDiff():
+                if node.moved_from:
+                    moves.append((node, path))
+            case _:
+                pass
+
+        # Push children to stack in reverse order to ensure Pre-order popping
+        if node.children:
+            stack.extend(
+                (child, path / child.record.name) for child in reversed(node.children)
+            )
+    return moves, removals, writes

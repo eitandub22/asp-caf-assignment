@@ -27,6 +27,7 @@ class RemovedDiff(Diff):
 class ModifiedDiff(Diff):
     """A modified tree record diff as part of a commit."""
 
+    original_record: TreeRecord
 
 @dataclass
 class MovedToDiff(Diff):
