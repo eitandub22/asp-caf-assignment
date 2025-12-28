@@ -815,7 +815,7 @@ class Repository:
         match resolved_ref:
             case SymRef():
                 write_ref(self.head_file(), resolved_ref)
-                return SymRef(f'{HEADS_DIR}/{target}')
+                return resolved_ref
             case HashRef() | TagRef():
                 commit_hash = self.resolve_ref(resolved_ref)
                 if commit_hash is None:
