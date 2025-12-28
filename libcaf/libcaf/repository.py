@@ -296,7 +296,16 @@ class Repository:
             msg = f'Branch "{branch}" already exists'
             raise RepositoryError(msg)
 
-        (self.heads_dir() / branch).touch()
+        try:
+            head_commit_hash = self.head_commit()
+        except RepositoryError:
+            head_commit_hash = None
+        branch_path = self.heads_dir() / branch
+
+        if head_commit_hash:
+            write_ref(branch_path, head_commit_hash)
+        else:
+            branch_path.touch()
 
     @requires_repo
     def delete_branch(self, branch: str) -> None:
@@ -418,6 +427,8 @@ class Repository:
 
         if branch:
             self.update_ref(branch, commit_ref)
+        else:
+            write_ref(self.head_file(), commit_ref)
 
         return commit_ref
 
@@ -779,12 +790,13 @@ class Repository:
 
 
     @requires_repo
-    def checkout(self, target: str) -> None:
+    def checkout(self, target: str) -> Ref:
         """Checkout a target (commit, branch or tag) into the working directory.
 
         :param target: The target to checkout. Can be a commit hash, a branch name or a tag name.
         :raises RepositoryError: If the target cannot be resolved or if the checkout fails.
         :raises RepositoryNotFoundError: If the repository does not exist.
+        :return: The Ref or HashRef that was checked out.
         """
         is_clean = self.status() == []
 
@@ -803,12 +815,14 @@ class Repository:
         match resolved_ref:
             case SymRef():
                 write_ref(self.head_file(), resolved_ref)
+                return resolved_ref
             case HashRef() | TagRef():
                 commit_hash = self.resolve_ref(resolved_ref)
                 if commit_hash is None:
                     msg = f'Cannot resolve commit for checkout target {target}'
                     raise RepositoryError(msg)
                 write_ref(self.head_file(), commit_hash)
+                return commit_hash
 
 def branch_ref(branch: str) -> SymRef:
     """Create a symbolic reference for a branch name.

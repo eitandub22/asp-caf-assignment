@@ -3,8 +3,6 @@
 import argparse
 import sys
 from typing import Any
-from datetime import datetime
-import os
 
 from libcaf.constants import DEFAULT_REPO_DIR
 
@@ -168,7 +166,7 @@ def cli() -> None:
             'args': {
                 **_repo_args,
             },
-            'help': 'List all tags'
+            'help': 'List all tags',
         },
 
         'create_tag': {
@@ -192,8 +190,8 @@ def cli() -> None:
                     'help': '💬 message for the tag',
                 },
             },
-            'help': 'Create a new tag'
-        }, 
+            'help': 'Create a new tag',
+        },
 
         'delete_tag': {
             'func': cli_commands.delete_tag,
@@ -204,8 +202,20 @@ def cli() -> None:
                     'help': '❌ Name of the tag to delete',
                 },
             },
-            'help': 'Delete an existing tag'
-        }
+            'help': 'Delete an existing tag',
+        },
+
+        'checkout': {
+            'func': cli_commands.checkout,
+            'args': {
+                **_repo_args,
+                'ref': {
+                    'type': str,
+                    'help': '🚪 Reference (branch, tag, or commit) to checkout',
+                },
+            },
+            'help': '🛒 Switch to a different branch',
+        },
     }
 
     # Register commands
